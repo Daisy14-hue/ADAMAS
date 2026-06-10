@@ -23,15 +23,50 @@ const ERRORS = {
   ROULETTE_COLOR_REQUIRED: 'Call a color for the roulette.',
 };
 
+// ---- localStorage session (pid per room) ----------------------------------
+const LS_LAST = 'adamas:lastRoom';
+const LS_NAME = 'adamas:name';
+const pidKey = (code) => `adamas:pid:${code}`;
+const hasLS = () => typeof window !== 'undefined' && !!window.localStorage;
+
+const saveSession = (code, pid, name) => {
+  if (!hasLS()) return;
+  localStorage.setItem(pidKey(code), pid);
+  localStorage.setItem(LS_LAST, code);
+  if (name) localStorage.setItem(LS_NAME, name);
+};
+const loadSession = () => {
+  if (!hasLS()) return null;
+  const code = localStorage.getItem(LS_LAST);
+  const name = localStorage.getItem(LS_NAME);
+  const pid = code ? localStorage.getItem(pidKey(code)) : null;
+  return code && pid ? { code, pid, name } : null;
+};
+const clearSession = (code) => {
+  if (!hasLS()) return;
+  if (code) localStorage.removeItem(pidKey(code));
+  localStorage.removeItem(LS_LAST);
+};
+
 export default function Home() {
   const [name, setName] = useState('');
   const [screen, setScreen] = useState('landing'); // landing|name|hub|entry|lobby|game
   const [room, setRoom] = useState(null);
+  const [roomCode, setRoomCode] = useState(null);
   const [playerId, setPlayerId] = useState(null);
   const [view, setView] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const afterName = useRef(null);
+
+  // refs so the once-mounted socket effect reads current values
+  const nameRef = useRef('');
+  const roomCodeRef = useRef(null);
+  const playerIdRef = useRef(null);
+  useEffect(() => { nameRef.current = name; }, [name]);
+  useEffect(() => { roomCodeRef.current = roomCode; }, [roomCode]);
+  useEffect(() => { playerIdRef.current = playerId; }, [playerId]);
 
   const toast = (msg, kind = 'err') => {
     const id = Math.random().toString(36).slice(2);
@@ -39,26 +74,68 @@ export default function Home() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
   };
 
-  // socket lifecycle
+  const resetToHub = () => {
+    clearSession(roomCodeRef.current);
+    setRoom(null);
+    setRoomCode(null);
+    setView(null);
+    setScreen('hub');
+  };
+
+  // ---- socket lifecycle (mounted once) ----
   useEffect(() => {
     const s = getSocket();
-    setPlayerId(s.id || null);
-    const onConnect = () => setPlayerId(s.id);
-    const onLobby = (data) => setRoom(data);
+
+    const tryRejoin = async () => {
+      // Prefer the active room; fall back to a saved session (page reload).
+      const active = roomCodeRef.current;
+      const saved = loadSession();
+      const code = active || (saved && saved.code);
+      const pid = active ? (hasLS() && localStorage.getItem(pidKey(active))) : saved && saved.pid;
+      const nm = nameRef.current || (saved && saved.name) || '';
+      if (!code || !pid) { setReconnecting(false); return; }
+      setReconnecting(true);
+      const res = await emit('joinRoom', { name: nm, code, pid });
+      if (res.ok) {
+        setName((n) => n || nm);
+        setPlayerId(res.pid);
+        setRoom((r) => r || { code });
+        setRoomCode(code);
+        saveSession(code, res.pid, nm);
+        setScreen((sc) => (sc === 'game' ? sc : 'lobby'));
+      } else {
+        clearSession(code);
+        if (active) toast('Lost the room — it may have ended.', 'info');
+      }
+      setReconnecting(false);
+    };
+
+    const onConnect = () => { tryRejoin(); };
+    const onDisconnect = () => { if (roomCodeRef.current) setReconnecting(true); };
+    const onLobby = (data) => { setRoom(data); if (data.code) setRoomCode(data.code); };
     const onState = ({ view: v }) => { setView(v); setScreen('game'); };
     const onEnded = ({ reason }) => {
-      toast(reason === 'PLAYER_DISCONNECTED' ? 'A player disconnected — match ended.' : 'Match ended.', 'info');
+      toast(reason === 'PLAYER_REMOVED' || reason === 'PLAYER_DISCONNECTED'
+        ? 'A player dropped and didn’t return — match ended.'
+        : reason === 'PLAYER_LEFT' ? 'A player left — match ended.' : 'Match ended.', 'info');
+      resetToHub();
     };
+
     s.on('connect', onConnect);
+    s.on('disconnect', onDisconnect);
     s.on('lobby', onLobby);
     s.on('state', onState);
     s.on('ended', onEnded);
+    if (s.connected) tryRejoin(); // already connected before listeners attached
+
     return () => {
       s.off('connect', onConnect);
+      s.off('disconnect', onDisconnect);
       s.off('lobby', onLobby);
       s.off('state', onState);
       s.off('ended', onEnded);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- actions ----
@@ -68,6 +145,7 @@ export default function Home() {
   };
   const submitName = (n) => {
     setName(n);
+    if (hasLS()) localStorage.setItem(LS_NAME, n);
     const next = afterName.current || 'hub';
     afterName.current = null;
     setScreen(next);
@@ -78,7 +156,9 @@ export default function Home() {
     const res = await emit('createRoom', { name });
     setBusy(false);
     if (!res.ok) return toast(ERRORS[res.error] || res.error);
-    setPlayerId(res.playerId);
+    setPlayerId(res.pid);
+    setRoomCode(res.code);
+    saveSession(res.code, res.pid, name);
     setScreen('lobby');
   };
   const joinRoom = async (code) => {
@@ -86,7 +166,9 @@ export default function Home() {
     const res = await emit('joinRoom', { name, code });
     setBusy(false);
     if (!res.ok) return toast(ERRORS[res.error] || res.error);
-    setPlayerId(res.playerId);
+    setPlayerId(res.pid);
+    setRoomCode(res.code);
+    saveSession(res.code, res.pid, name);
     setScreen('lobby');
   };
   const updateConfig = (cfg) => emit('updateConfig', cfg);
@@ -100,9 +182,7 @@ export default function Home() {
   };
   const leave = () => {
     emit('leaveRoom', {});
-    setRoom(null);
-    setView(null);
-    setScreen('hub');
+    resetToHub();
   };
 
   // ---- render ----
@@ -119,6 +199,11 @@ export default function Home() {
 
   return (
     <>
+      {reconnecting && (
+        <div className="reconnect-banner">
+          <span className="spin" /> Reconnecting…
+        </div>
+      )}
       {showTopbar && (
         <div className="topbar">
           <span className="logo">ADAMAS</span>

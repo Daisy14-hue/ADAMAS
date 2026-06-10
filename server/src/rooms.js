@@ -1,14 +1,22 @@
 'use strict';
 
+const { randomUUID } = require('crypto');
 const { NoMercyEngine, DEFAULT_CONFIG } = require('./engine');
 
 /**
  * In-memory room/lobby manager for ADAMAS Phase 1.
  *
  * No database — rooms live only in process memory and vanish on restart.
- * A player's identity within a room is their socket id (Phase 1: no accounts,
- * no reconnect). Each room owns one NoMercyEngine instance once the match
- * starts.
+ *
+ * IDENTITY MODEL (reconnect support):
+ *   Each player has a stable `pid` (a crypto.randomUUID) that is their identity
+ *   for the whole match — this is what the NoMercy engine sees as the player id.
+ *   The live transport is tracked separately as `socketId`, which changes every
+ *   time the player (re)connects. A disconnect does NOT delete the player; the
+ *   socket layer marks them `connected: false` and starts a grace timer. A
+ *   reconnect re-attaches a fresh socketId to the same `pid`.
+ *
+ * Player shape: { pid, socketId, name, isHost, connected, disconnectedAt }
  */
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no easily-confused chars
@@ -46,11 +54,16 @@ class RoomManager {
     return code;
   }
 
+  _findByPid(room, pid) {
+    return room.players.find((p) => p.pid === pid) || null;
+  }
+
   createRoom(hostName, socketId, config = {}) {
     const code = this._newCode();
+    const pid = randomUUID();
     const room = {
       code,
-      hostId: socketId,
+      hostId: pid, // host identity is a stable pid (survives reconnects)
       status: 'lobby', // 'lobby' | 'playing' | 'finished'
       config: {
         eliminationLimit: clampInt(config.eliminationLimit, 2, 200, DEFAULT_CONFIG.eliminationLimit),
@@ -60,37 +73,66 @@ class RoomManager {
       engine: null,
     };
     this.rooms.set(code, room);
-    const player = this._addPlayer(room, hostName, socketId);
+    const player = this._addPlayer(room, hostName, socketId, pid);
     return { room, player };
   }
 
-  joinRoom(code, name, socketId) {
+  /**
+   * Join a room, or RECONNECT if a known `pid` is supplied.
+   * - With a `pid` that already exists in the room → reattach the new socketId
+   *   to the existing seat (works in lobby AND mid-match). No duplicate seat.
+   * - Otherwise a brand-new player joins (only allowed while in 'lobby').
+   */
+  joinRoom(code, name, socketId, pid) {
     const room = this.rooms.get(String(code || '').toUpperCase().trim());
     if (!room) return { error: 'ROOM_NOT_FOUND' };
+
+    if (pid) {
+      const existing = this._findByPid(room, pid);
+      if (existing) {
+        existing.socketId = socketId;
+        existing.connected = true;
+        existing.disconnectedAt = null;
+        if (name) existing.name = sanitizeName(name);
+        return { room, player: existing, reconnected: true };
+      }
+    }
+
+    // New player from here on.
     if (room.status !== 'lobby') return { error: 'MATCH_ALREADY_STARTED' };
     if (room.players.length >= MAX_PLAYERS) return { error: 'ROOM_FULL' };
-    if (room.players.some((p) => p.id === socketId)) {
-      return { room, player: room.players.find((p) => p.id === socketId) };
-    }
-    const player = this._addPlayer(room, name, socketId);
-    return { room, player };
+    const player = this._addPlayer(room, name, socketId, randomUUID());
+    return { room, player, reconnected: false };
   }
 
-  _addPlayer(room, name, socketId) {
+  _addPlayer(room, name, socketId, pid) {
     const player = {
-      id: socketId,
+      pid,
+      socketId,
       name: sanitizeName(name),
-      isHost: room.hostId === socketId,
+      isHost: room.hostId === pid,
       connected: true,
+      disconnectedAt: null,
     };
     room.players.push(player);
     return player;
   }
 
-  updateConfig(code, socketId, config) {
+  /** Mark a player as disconnected without removing them (grace period). */
+  markDisconnected(code, pid) {
+    const room = this.rooms.get(code);
+    if (!room) return { room: null, player: null };
+    const player = this._findByPid(room, pid);
+    if (!player) return { room, player: null };
+    player.connected = false;
+    player.disconnectedAt = Date.now();
+    return { room, player };
+  }
+
+  updateConfig(code, pid, config) {
     const room = this.rooms.get(code);
     if (!room) return { error: 'ROOM_NOT_FOUND' };
-    if (room.hostId !== socketId) return { error: 'NOT_HOST' };
+    if (room.hostId !== pid) return { error: 'NOT_HOST' };
     if (room.status !== 'lobby') return { error: 'MATCH_ALREADY_STARTED' };
     if (config.eliminationLimit !== undefined) {
       room.config.eliminationLimit = clampInt(config.eliminationLimit, 2, 200, room.config.eliminationLimit);
@@ -101,15 +143,15 @@ class RoomManager {
     return { room };
   }
 
-  startMatch(code, socketId) {
+  startMatch(code, pid) {
     const room = this.rooms.get(code);
     if (!room) return { error: 'ROOM_NOT_FOUND' };
-    if (room.hostId !== socketId) return { error: 'NOT_HOST' };
+    if (room.hostId !== pid) return { error: 'NOT_HOST' };
     if (room.status !== 'lobby') return { error: 'MATCH_ALREADY_STARTED' };
     if (room.players.length < MIN_PLAYERS) return { error: 'NEED_AT_LEAST_2_PLAYERS' };
 
     room.engine = new NoMercyEngine({
-      players: room.players.map((p) => ({ id: p.id, name: p.name, isHost: p.isHost })),
+      players: room.players.map((p) => ({ id: p.pid, name: p.name, isHost: p.isHost })),
       config: room.config,
     });
     const res = room.engine.start();
@@ -118,31 +160,43 @@ class RoomManager {
     return { room, events: res.events };
   }
 
-  applyIntent(code, socketId, intent) {
+  applyIntent(code, pid, intent) {
     const room = this.rooms.get(code);
     if (!room) return { error: 'ROOM_NOT_FOUND' };
     if (room.status !== 'playing' || !room.engine) return { error: 'GAME_NOT_ACTIVE' };
-    const res = room.engine.applyIntent(socketId, intent);
+    const res = room.engine.applyIntent(pid, intent);
     if (res.ok && room.engine.state.status === 'finished') room.status = 'finished';
     return { room, result: res };
   }
 
-  /** Remove a player (disconnect/leave). Returns { room, removed, roomClosed }. */
-  removePlayer(code, socketId) {
+  /**
+   * Permanently remove a player (grace timer expired, or an explicit leave).
+   * Returns { room, removed, roomClosed, endedMatch }.
+   *
+   * ENGINE NOTE: the NoMercy rules engine has no "remove a seat mid-match"
+   * operation — its turn pointer is an index into a fixed players array, so
+   * splicing a player out would corrupt turn order. Rather than silently change
+   * engine rules (and break the 43-test engine suite), we choose: if a player is
+   * removed while status === 'playing', the MATCH ENDS (endedMatch = true). This
+   * only happens AFTER the grace period, so a quick reconnect never triggers it.
+   * In 'lobby' the player is simply dropped and the lobby continues.
+   */
+  removePlayer(code, pid) {
     const room = this.rooms.get(code);
-    if (!room) return { roomClosed: false };
-    const idx = room.players.findIndex((p) => p.id === socketId);
-    if (idx < 0) return { room, removed: null, roomClosed: false };
+    if (!room) return { room: null, removed: null, roomClosed: false, endedMatch: false };
+    const idx = room.players.findIndex((p) => p.pid === pid);
+    if (idx < 0) return { room, removed: null, roomClosed: false, endedMatch: false };
     const [removed] = room.players.splice(idx, 1);
 
-    // If the match is in progress, a disconnect ends it (Phase 1 limitation).
+    let endedMatch = false;
     if (room.status === 'playing') {
       room.status = 'finished';
+      endedMatch = true;
     }
 
-    // Reassign host if the host left and players remain.
-    if (room.hostId === socketId && room.players.length > 0) {
-      room.hostId = room.players[0].id;
+    // Reassign host (by pid) if the host left and players remain.
+    if (room.hostId === pid && room.players.length > 0) {
+      room.hostId = room.players[0].pid;
       room.players[0].isHost = true;
     }
 
@@ -151,22 +205,41 @@ class RoomManager {
       this.rooms.delete(code);
       roomClosed = true;
     }
-    return { room: roomClosed ? null : room, removed, roomClosed };
+    return { room: roomClosed ? null : room, removed, roomClosed, endedMatch };
   }
 
   getRoom(code) {
     return this.rooms.get(code) || null;
   }
 
-  /** Lobby snapshot for broadcasting (no engine state). */
+  /** Lobby snapshot for broadcasting (no engine state). Includes `connected`. */
   lobbyState(room) {
     return {
       code: room.code,
       status: room.status,
       hostId: room.hostId,
       config: { ...room.config },
-      players: room.players.map((p) => ({ id: p.id, name: p.name, isHost: p.isHost })),
+      players: room.players.map((p) => ({
+        id: p.pid,
+        name: p.name,
+        isHost: p.isHost,
+        connected: p.connected,
+      })),
     };
+  }
+
+  /**
+   * Per-player game view (engine.view by pid) with each player's `connected`
+   * flag injected from room state (the engine doesn't track connectivity).
+   */
+  gameView(room, pid) {
+    if (!room.engine) return null;
+    const view = room.engine.view(pid);
+    for (const vp of view.players) {
+      const rp = this._findByPid(room, vp.id);
+      vp.connected = rp ? rp.connected : false;
+    }
+    return view;
   }
 }
 

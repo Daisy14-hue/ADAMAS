@@ -6,32 +6,49 @@ const { Server } = require('socket.io');
 
 const { RoomManager } = require('./rooms');
 
+const DEFAULT_GRACE_MS = 60000; // reconnect grace window before a seat is removed
+
 /**
  * Build the ADAMAS realtime server (Express + Socket.IO).
  *
  * Returns { app, server, io, rooms } without listening, so tests can bind to an
- * ephemeral port. Use createServer().server.listen(port) in production.
+ * ephemeral port. `opts.graceMs` overrides the reconnect grace window (tests).
  *
- * Protocol (all client → server events take an optional ack callback):
- *   createRoom  { name, config }            -> ack { ok, code, playerId, isHost } | { ok:false, error }
- *   joinRoom    { name, code }              -> ack { ok, code, playerId, isHost } | { ok:false, error }
+ * Protocol (client → server events take an optional ack callback). The shapes
+ * are backwards-compatible — reconnect only ADDS fields (`pid`, `connected`):
+ *   createRoom  { name, config }       -> ack { ok, code, playerId, pid, isHost }
+ *   joinRoom    { name, code, pid? }   -> ack { ok, code, playerId, pid, isHost, reconnected }
  *   updateConfig{ eliminationLimit, recycleThreshold } -> ack { ok } | { ok:false, error }
- *   startMatch  {}                          -> ack { ok } | { ok:false, error }
- *   intent      { type, ... }               -> ack { ok } | { ok:false, error }
- *   leaveRoom   {}                          -> ack { ok }
+ *   startMatch  {}                     -> ack { ok } | { ok:false, error }
+ *   intent      { type, ... }          -> ack { ok } | { ok:false, error }
+ *   leaveRoom   {}                     -> ack { ok }   (explicit, immediate leave)
  *
  * Server → client broadcasts:
- *   lobby   { code, status, hostId, config, players }   (lobby changes)
- *   state   { view, events }                            (per-player game state)
- *   ended   { reason }                                  (match ended early, e.g. disconnect)
+ *   lobby   { code, status, hostId, config, players:[{id,name,isHost,connected}] }
+ *   state   { view, events }    (view.players[].connected is included)
+ *   ended   { reason }          (match ended: PLAYER_REMOVED after grace, PLAYER_LEFT)
+ *
+ * `playerId` in acks equals `pid` (the stable identity the client matches
+ * against view.players[].id and lobby.hostId). It is kept for back-compat.
  */
-function createServer({ corsOrigin = '*' } = {}) {
+function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
   const app = express();
   app.get('/health', (_req, res) => res.json({ ok: true, service: 'adamas', ts: Date.now() }));
 
   const server = http.createServer(app);
   const io = new Server(server, { cors: { origin: corsOrigin, methods: ['GET', 'POST'] } });
   const rooms = new RoomManager();
+
+  // pid -> grace removal timer (kept in the socket layer because firing it needs
+  // to broadcast over io).
+  const graceTimers = new Map();
+  const clearGrace = (pid) => {
+    const t = graceTimers.get(pid);
+    if (t) {
+      clearTimeout(t);
+      graceTimers.delete(pid);
+    }
+  };
 
   const broadcastLobby = (room) => {
     if (!room) return;
@@ -41,8 +58,28 @@ function createServer({ corsOrigin = '*' } = {}) {
   const broadcastGame = (room, events = []) => {
     if (!room || !room.engine) return;
     for (const p of room.players) {
-      io.to(p.id).emit('state', { view: room.engine.view(p.id), events });
+      if (!p.socketId) continue;
+      io.to(p.socketId).emit('state', { view: rooms.gameView(room, p.pid), events });
     }
+  };
+
+  const startGrace = (code, pid) => {
+    clearGrace(pid);
+    const timer = setTimeout(() => {
+      graceTimers.delete(pid);
+      const room = rooms.getRoom(code);
+      if (!room) return;
+      const player = room.players.find((p) => p.pid === pid);
+      if (!player || player.connected) return; // reconnected in time → keep seat
+      const res = rooms.removePlayer(code, pid);
+      if (res.endedMatch) io.to(code).emit('ended', { reason: 'PLAYER_REMOVED' });
+      if (!res.roomClosed && res.room) {
+        broadcastLobby(res.room);
+        broadcastGame(res.room);
+      }
+    }, graceMs);
+    if (typeof timer.unref === "function") timer.unref(); // never block process exit
+    graceTimers.set(pid, timer);
   };
 
   io.on('connection', (socket) => {
@@ -55,33 +92,43 @@ function createServer({ corsOrigin = '*' } = {}) {
       const { room, player } = rooms.createRoom(data.name, socket.id, data.config || {});
       socket.join(room.code);
       socket.data.roomCode = room.code;
-      socket.data.playerId = player.id;
-      ack(cb, { ok: true, code: room.code, playerId: player.id, isHost: player.isHost });
+      socket.data.pid = player.pid;
+      ack(cb, { ok: true, code: room.code, playerId: player.pid, pid: player.pid, isHost: player.isHost });
       broadcastLobby(room);
     });
 
     socket.on('joinRoom', (data = {}, cb) => {
       if (socket.data.roomCode) return ack(cb, { ok: false, error: 'ALREADY_IN_ROOM' });
-      const { room, player, error } = rooms.joinRoom(data.code, data.name, socket.id);
+      const { room, player, reconnected, error } = rooms.joinRoom(data.code, data.name, socket.id, data.pid);
       if (error) return ack(cb, { ok: false, error });
       socket.join(room.code);
       socket.data.roomCode = room.code;
-      socket.data.playerId = player.id;
-      ack(cb, { ok: true, code: room.code, playerId: player.id, isHost: player.isHost });
+      socket.data.pid = player.pid;
+      clearGrace(player.pid); // cancel any pending removal
+      ack(cb, {
+        ok: true,
+        code: room.code,
+        playerId: player.pid,
+        pid: player.pid,
+        isHost: player.isHost,
+        reconnected: !!reconnected,
+      });
       broadcastLobby(room);
+      // A reconnecting player mid-match needs their private hand re-sent.
+      if (room.engine) {
+        io.to(socket.id).emit('state', { view: rooms.gameView(room, player.pid), events: [] });
+      }
     });
 
     socket.on('updateConfig', (data = {}, cb) => {
-      const code = socket.data.roomCode;
-      const { room, error } = rooms.updateConfig(code, socket.id, data);
+      const { room, error } = rooms.updateConfig(socket.data.roomCode, socket.data.pid, data);
       if (error) return ack(cb, { ok: false, error });
       ack(cb, { ok: true });
       broadcastLobby(room);
     });
 
     socket.on('startMatch', (_data, cb) => {
-      const code = socket.data.roomCode;
-      const { room, events, error } = rooms.startMatch(code, socket.id);
+      const { room, events, error } = rooms.startMatch(socket.data.roomCode, socket.data.pid);
       if (error) return ack(cb, { ok: false, error });
       ack(cb, { ok: true });
       broadcastLobby(room); // status flips to "playing"
@@ -89,8 +136,7 @@ function createServer({ corsOrigin = '*' } = {}) {
     });
 
     socket.on('intent', (intent = {}, cb) => {
-      const code = socket.data.roomCode;
-      const { room, result, error } = rooms.applyIntent(code, socket.id, intent);
+      const { room, result, error } = rooms.applyIntent(socket.data.roomCode, socket.data.pid, intent);
       if (error) return ack(cb, { ok: false, error });
       if (!result.ok) return ack(cb, { ok: false, error: result.error });
       ack(cb, { ok: true });
@@ -98,26 +144,40 @@ function createServer({ corsOrigin = '*' } = {}) {
       if (room.status === 'finished') broadcastLobby(room);
     });
 
+    // Explicit, intentional leave → remove immediately (no grace period).
     socket.on('leaveRoom', (_data, cb) => {
-      handleLeave(socket);
+      handleExplicitLeave(socket);
       ack(cb, { ok: true });
     });
 
-    socket.on('disconnect', () => handleLeave(socket));
+    // Transport drop → grace period, NOT removal.
+    socket.on('disconnect', () => handleDisconnect(socket));
 
-    function handleLeave(sock) {
+    function handleDisconnect(sock) {
       const code = sock.data.roomCode;
-      if (!code) return;
-      const wasPlaying = rooms.getRoom(code)?.status === 'playing';
-      const { room, roomClosed } = rooms.removePlayer(code, sock.id);
-      sock.leave(code);
-      sock.data.roomCode = null;
-      sock.data.playerId = null;
-      if (roomClosed || !room) return;
-      if (wasPlaying && room.status === 'finished') {
-        io.to(room.code).emit('ended', { reason: 'PLAYER_DISCONNECTED' });
-      }
+      const pid = sock.data.pid;
+      if (!code || !pid) return;
+      const { room, player } = rooms.markDisconnected(code, pid);
+      if (!room || !player) return;
       broadcastLobby(room);
+      broadcastGame(room); // refresh connected flags in the live game view
+      startGrace(code, pid);
+    }
+
+    function handleExplicitLeave(sock) {
+      const code = sock.data.roomCode;
+      const pid = sock.data.pid;
+      sock.leave(code || '');
+      sock.data.roomCode = null;
+      sock.data.pid = null;
+      if (!code || !pid) return;
+      clearGrace(pid);
+      const res = rooms.removePlayer(code, pid);
+      if (res.endedMatch) io.to(code).emit('ended', { reason: 'PLAYER_LEFT' });
+      if (!res.roomClosed && res.room) {
+        broadcastLobby(res.room);
+        broadcastGame(res.room);
+      }
     }
   });
 

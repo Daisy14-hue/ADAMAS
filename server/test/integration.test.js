@@ -8,9 +8,9 @@ const { createServer } = require('../src/server');
 
 // ---- harness --------------------------------------------------------------
 
-function startServer() {
+function startServer(opts = {}) {
   return new Promise((resolve) => {
-    const { server } = createServer({ corsOrigin: '*' });
+    const { server } = createServer({ corsOrigin: '*', ...opts });
     server.listen(0, () => resolve({ server, port: server.address().port }));
   });
 }
@@ -155,17 +155,20 @@ test('create + join lobby syncs both players and host flag', async () => {
   const created = await rpc(host, 'createRoom', { name: 'Ashish' });
   assert.ok(created.ok);
   assert.equal(created.isHost, true);
+  assert.ok(created.pid, 'createRoom returns a pid');
   const code = created.code;
 
   const lobbyP = once(guest, 'lobby');
   const joined = await rpc(guest, 'joinRoom', { name: 'Mahi', code });
   assert.ok(joined.ok, joined.error);
   assert.equal(joined.isHost, false);
+  assert.ok(joined.pid, 'joinRoom returns a pid');
 
   const lobby = await lobbyP;
   assert.equal(lobby.code, code);
   assert.equal(lobby.players.length, 2);
   assert.deepEqual(lobby.players.map((p) => p.name).sort(), ['Ashish', 'Mahi']);
+  assert.ok(lobby.players.every((p) => p.connected === true), 'connected flag present');
 
   host.close();
   guest.close();
@@ -217,12 +220,12 @@ test('match start deals private hands to each player', async () => {
   const hv = (await hostState).view;
   const gv = (await guestState).view;
   assert.equal(hv.status, 'playing');
-  // Each sees their own 7-card hand and only counts for the opponent.
   const hostMe = hv.players.find((p) => p.isYou);
   const hostThem = hv.players.find((p) => !p.isYou);
   assert.equal(hostMe.hand.length, 7);
   assert.equal(hostThem.hand, undefined);
   assert.equal(hostThem.handCount, 7);
+  assert.equal(hostThem.connected, true, 'connected flag in game view');
   assert.equal(gv.players.find((p) => p.isYou).hand.length, 7);
 
   host.close();
@@ -234,13 +237,13 @@ test('out-of-turn intent is rejected by the server', async () => {
   const { server, port } = await startServer();
   const host = await connect(port);
   const guest = await connect(port);
-  const { code } = await rpc(host, 'createRoom', { name: 'Host' });
-  await rpc(guest, 'joinRoom', { name: 'Guest', code });
+  const cr = await rpc(host, 'createRoom', { name: 'Host' });
+  await rpc(guest, 'joinRoom', { name: 'Guest', code: cr.code });
 
   const hostState = once(host, 'state');
   await rpc(host, 'startMatch', {});
   const hv = (await hostState).view;
-  const notCurrent = hv.currentPlayerId === host.id ? guest : host;
+  const notCurrent = hv.currentPlayerId === cr.pid ? guest : host;
   const res = await rpc(notCurrent, 'intent', { type: 'DRAW' });
   assert.equal(res.ok, false);
   assert.equal(res.error, 'NOT_YOUR_TURN');
@@ -258,16 +261,15 @@ test('a full 3-player game runs end-to-end to a winner', async () => {
 
   const ca = await rpc(a, 'createRoom', { name: 'A', config: { eliminationLimit: 25 } });
   const code = ca.code;
-  await rpc(b, 'joinRoom', { name: 'B', code });
-  await rpc(c, 'joinRoom', { name: 'C', code });
+  const jb = await rpc(b, 'joinRoom', { name: 'B', code });
+  const jc = await rpc(c, 'joinRoom', { name: 'C', code });
 
   const clients = [
-    { sock: a, playerId: ca.playerId },
-    { sock: b, playerId: b.id },
-    { sock: c, playerId: c.id },
+    { sock: a, playerId: ca.pid },
+    { sock: b, playerId: jb.pid },
+    { sock: c, playerId: jc.pid },
   ];
   const gameP = runGame(clients);
-  await rpc(a, 'startMatch', {});
   await rpc(a, 'startMatch', {});
 
   const finalView = await gameP;
@@ -280,19 +282,106 @@ test('a full 3-player game runs end-to-end to a winner', async () => {
   server.close();
 });
 
-test('disconnect during a match ends it', async () => {
-  const { server, port } = await startServer();
+// ---- reconnect ------------------------------------------------------------
+
+test('disconnect marks the player disconnected but keeps the seat (lobby)', async () => {
+  const { server, port } = await startServer({ graceMs: 5000 });
+  const host = await connect(port);
+  const guest = await connect(port);
+  const { code } = await rpc(host, 'createRoom', { name: 'Host' });
+
+  // Set up the join-lobby listener BEFORE joining so ordering is deterministic.
+  const joinLobbyP = once(host, 'lobby');
+  const gj = await rpc(guest, 'joinRoom', { name: 'Guest', code });
+  await joinLobbyP; // host has now seen the 2-player (all-connected) lobby
+
+  const dropLobbyP = once(host, 'lobby');
+  guest.close();
+  const lobby = await dropLobbyP;
+  assert.equal(lobby.players.length, 2, 'seat kept during grace');
+  const gEntry = lobby.players.find((p) => p.id === gj.pid);
+  assert.equal(gEntry.connected, false);
+
+  host.close();
+  server.close();
+});
+
+test('reconnect in lobby reattaches the same seat (no duplicate)', async () => {
+  const { server, port } = await startServer({ graceMs: 5000 });
+  const host = await connect(port);
+  const guest = await connect(port);
+  const { code } = await rpc(host, 'createRoom', { name: 'Host' });
+  const gj = await rpc(guest, 'joinRoom', { name: 'Guest', code });
+
+  await once(host, 'lobby'); // join broadcast
+  const dropP = once(host, 'lobby');
+  guest.close();
+  await dropP;
+
+  const guest2 = await connect(port);
+  const rejoinLobbyP = once(host, 'lobby');
+  const rj = await rpc(guest2, 'joinRoom', { name: 'Guest', code, pid: gj.pid });
+  assert.ok(rj.ok);
+  assert.equal(rj.reconnected, true);
+  assert.equal(rj.pid, gj.pid, 'same pid');
+
+  const lobby = await rejoinLobbyP;
+  assert.equal(lobby.players.length, 2, 'no duplicate seat');
+  assert.equal(lobby.players.find((p) => p.id === gj.pid).connected, true);
+
+  host.close();
+  guest2.close();
+  server.close();
+});
+
+test('reconnect mid-match restores the hand and keeps the match alive', async () => {
+  const { server, port } = await startServer({ graceMs: 5000 });
+  const host = await connect(port);
+  const guest = await connect(port);
+  const { code } = await rpc(host, 'createRoom', { name: 'Host' });
+  const gj = await rpc(guest, 'joinRoom', { name: 'Guest', code });
+
+  const guestState = once(guest, 'state');
+  await rpc(host, 'startMatch', {});
+  const origHand = (await guestState).view.players.find((p) => p.isYou).hand.length;
+  assert.equal(origHand, 7);
+
+  // guest drops; host should still see a playing match with guest disconnected
+  const hostState = once(host, 'state');
+  guest.close();
+  const hv = (await hostState).view;
+  assert.equal(hv.status, 'playing', 'match continues during grace');
+  assert.equal(hv.players.find((p) => p.id === gj.pid).connected, false);
+
+  // guest reconnects and gets their private hand back
+  const guest2 = await connect(port);
+  const stateP = once(guest2, 'state');
+  const rj = await rpc(guest2, 'joinRoom', { name: 'Guest', code, pid: gj.pid });
+  assert.ok(rj.ok);
+  assert.equal(rj.reconnected, true);
+  const v = (await stateP).view;
+  assert.equal(v.status, 'playing');
+  const me = v.players.find((p) => p.isYou);
+  assert.equal(me.hand.length, origHand, 'hand intact after reconnect');
+
+  host.close();
+  guest2.close();
+  server.close();
+});
+
+test('match ends only AFTER the grace period if the player never returns', async () => {
+  const { server, port } = await startServer({ graceMs: 150 });
   const host = await connect(port);
   const guest = await connect(port);
   const { code } = await rpc(host, 'createRoom', { name: 'Host' });
   await rpc(guest, 'joinRoom', { name: 'Guest', code });
   await rpc(host, 'startMatch', {});
 
-  const endedP = once(guest, 'ended');
-  host.close();
-  const ended = await endedP;
-  assert.equal(ended.reason, 'PLAYER_DISCONNECTED');
-
+  const endedP = once(host, 'ended');
   guest.close();
+  const ended = await endedP;
+  assert.equal(ended.reason, 'PLAYER_REMOVED');
+
+  host.close();
   server.close();
 });

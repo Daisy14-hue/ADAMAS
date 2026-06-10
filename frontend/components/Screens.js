@@ -171,10 +171,13 @@ export function Lobby({ room, playerId, onUpdateConfig, onStart, onLeave }) {
         <div className="card-panel">
           <h3 style={{ marginTop: 0 }}>Players ({room.players.length})</h3>
           {room.players.map((p) => (
-            <div className="player-row" key={p.id}>
+            <div className={`player-row ${p.connected === false ? 'is-offline' : ''}`} key={p.id}>
               <span className="avatar">{(p.name || '?')[0].toUpperCase()}</span>
               <b>{p.name}</b>
               {p.id === playerId && <span className="muted">(you)</span>}
+              <span className={`conn-badge ${p.connected === false ? 'off' : 'on'}`}>
+                {p.connected === false ? 'reconnecting…' : 'online'}
+              </span>
               <div className="spacer" />
               {p.isHost && <span className="pill tag-host">HOST</span>}
             </div>

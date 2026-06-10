@@ -71,11 +71,12 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
       {/* opponents */}
       <div className="opponents">
         {opponents.map((p) => (
-          <div key={p.id} className={`opp ${p.id === view.currentPlayerId ? 'turn' : ''} ${p.eliminated ? 'eliminated' : ''}`}>
+          <div key={p.id} className={`opp ${p.id === view.currentPlayerId ? 'turn' : ''} ${p.eliminated ? 'eliminated' : ''} ${p.connected === false ? 'disconnected' : ''}`}>
             <div className="row gap-8" style={{ alignItems: 'center' }}>
               <span className="avatar" style={{ width: 26, height: 26, fontSize: 13 }}>{(p.name || '?')[0].toUpperCase()}</span>
               <b>{p.name}</b>{p.isHost && <span className="pill tag-host" style={{ padding: '1px 6px' }}>H</span>}
             </div>
+            {p.connected === false && <span className="conn-badge off">reconnecting…</span>}
             <div className="mini-cards">
               {Array.from({ length: Math.min(p.handCount, 12) }).map((_, i) => <span className="mc" key={i} />)}
             </div>

@@ -272,4 +272,36 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* ---------- reconnect / connectivity ---------- */
+.reconnect-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 8px 12px; font-weight: 700; font-size: 14px;
+  background: linear-gradient(90deg, #b3263a, var(--danger));
+  color: #fff; box-shadow: 0 4px 14px rgba(0,0,0,.4);
+}
+.reconnect-banner .spin {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.4); border-top-color: #fff;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.conn-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.conn-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; }
+.conn-badge.on { color: var(--good); background: rgba(47,208,122,.12); border-color: rgba(47,208,122,.35); }
+.conn-badge.on::before { background: var(--good); box-shadow: 0 0 6px var(--good); }
+.conn-badge.off { color: var(--warn); background: rgba(245,185,20,.12); border-color: rgba(245,185,20,.4); }
+.conn-badge.off::before { background: var(--warn); animation: blink 1s steps(2, start) infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+
+.player-row.is-offline { opacity: .6; }
+.opp.disconnected { opacity: .55; filter: grayscale(.5); }
+.opp.disconnected .conn-badge.off { position: absolute; top: 6px; right: 6px; }
+
 /* EOF globals.css */
