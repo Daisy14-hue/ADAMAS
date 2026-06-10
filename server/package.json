@@ -1,0 +1,26 @@
+{
+  "name": "adamas-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ADAMAS game hub — Phase 1 backend (UNO No Mercy engine + realtime).",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test",
+    "test:engine": "node --test test/deck.test.js test/engine.test.js",
+    "test:integration": "node --test test/integration.test.js",
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
+  },
+  "license": "UNLICENSED"
+}

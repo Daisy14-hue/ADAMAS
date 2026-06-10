@@ -1,0 +1,23 @@
+# Dependencies (rebuilt per-machine with npm install)
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Environment / secret files
+.env
+.env*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Misc
+*.tmp
