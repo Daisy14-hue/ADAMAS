@@ -2,6 +2,9 @@
 
 const { randomUUID } = require('crypto');
 const { NoMercyEngine, DEFAULT_CONFIG } = require('./engine');
+const { FlipEngine } = require('./engine/flip');
+
+const GAME_TYPES = new Set(['noMercy', 'flip']);
 
 /**
  * In-memory room/lobby manager for ADAMAS Phase 1.
@@ -58,12 +61,13 @@ class RoomManager {
     return room.players.find((p) => p.pid === pid) || null;
   }
 
-  createRoom(hostName, socketId, config = {}) {
+  createRoom(hostName, socketId, config = {}, gameType = 'noMercy') {
     const code = this._newCode();
     const pid = randomUUID();
     const room = {
       code,
       hostId: pid, // host identity is a stable pid (survives reconnects)
+      gameType: GAME_TYPES.has(gameType) ? gameType : 'noMercy',
       status: 'lobby', // 'lobby' | 'playing' | 'finished'
       config: {
         eliminationLimit: clampInt(config.eliminationLimit, 2, 200, DEFAULT_CONFIG.eliminationLimit),
@@ -150,7 +154,8 @@ class RoomManager {
     if (room.status !== 'lobby') return { error: 'MATCH_ALREADY_STARTED' };
     if (room.players.length < MIN_PLAYERS) return { error: 'NEED_AT_LEAST_2_PLAYERS' };
 
-    room.engine = new NoMercyEngine({
+    const EngineCls = room.gameType === 'flip' ? FlipEngine : NoMercyEngine;
+    room.engine = new EngineCls({
       players: room.players.map((p) => ({ id: p.pid, name: p.name, isHost: p.isHost })),
       config: room.config,
     });
@@ -217,6 +222,7 @@ class RoomManager {
     return {
       code: room.code,
       status: room.status,
+      gameType: room.gameType,
       hostId: room.hostId,
       config: { ...room.config },
       players: room.players.map((p) => ({

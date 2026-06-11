@@ -89,7 +89,7 @@ function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
 
     socket.on('createRoom', (data = {}, cb) => {
       if (socket.data.roomCode) return ack(cb, { ok: false, error: 'ALREADY_IN_ROOM' });
-      const { room, player } = rooms.createRoom(data.name, socket.id, data.config || {});
+      const { room, player } = rooms.createRoom(data.name, socket.id, data.config || {}, data.gameType);
       socket.join(room.code);
       socket.data.roomCode = room.code;
       socket.data.pid = player.pid;

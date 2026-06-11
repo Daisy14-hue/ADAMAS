@@ -378,23 +378,63 @@ test('voluntary draw is blocked when a playable card is held', () => {
   assert.equal(r.error, 'YOU_HAVE_A_PLAYABLE_CARD');
 });
 
-test('drawing an unplayable card keeps the turn; a playable one must be played', () => {
+test('drawing an UNPLAYABLE card ends the turn (new shared draw rule)', () => {
   const e = makeEngine(['A', 'B', 'C']);
-  // A holds only mismatched cards; top is red 5; drawPile top (popped) is blue (unplayable), then red (playable).
+  setup(e, {
+    hands: [[num('green', 9)]], // not playable on red 5
+    top: num('red', 5),
+    drawPile: [num('blue', 7)], // pops blue 7 — unplayable
+  });
+  const r = e.applyIntent('A', { type: 'DRAW' });
+  assert.ok(r.ok);
+  assert.equal(hand(e, 'A').length, 2, 'keeps exactly the one drawn card');
+  assert.equal(cur(e), 'B', 'unplayable draw ends the turn automatically');
+});
+
+test('drawing a PLAYABLE card lets you play it (only that card)', () => {
+  const e = makeEngine(['A', 'B', 'C']);
   setup(e, {
     hands: [[num('green', 9)]],
     top: num('red', 5),
-    drawPile: [num('red', 3), num('blue', 7)], // pops blue first, then red
+    drawPile: [num('red', 3)], // pops red 3 — playable by color
   });
-  const r1 = e.applyIntent('A', { type: 'DRAW' });
-  assert.ok(r1.ok);
-  assert.equal(cur(e), 'A', 'unplayable draw keeps the turn');
-  const r2 = e.applyIntent('A', { type: 'DRAW' });
-  assert.ok(r2.ok);
-  assert.equal(e.state.pendingPlay.idx, 0, 'playable draw must now be played');
-  // trying to play a different card is rejected
+  const r = e.applyIntent('A', { type: 'DRAW' });
+  assert.ok(r.ok);
+  assert.equal(cur(e), 'A', 'still your turn after drawing a playable card');
+  assert.equal(e.state.pendingPlay.idx, 0, 'the drawn card is pending');
+  assert.equal(e.view('A').canPass, true, 'view exposes canPass');
+  // only the drawn card may be played
   const other = hand(e, 'A').find((c) => c.color === 'green');
   assert.equal(e.applyIntent('A', { type: 'PLAY_CARD', cardId: other.id }).error, 'MUST_PLAY_DRAWN_CARD');
+  const drawn = hand(e, 'A').find((c) => c.color === 'red');
+  assert.ok(e.applyIntent('A', { type: 'PLAY_CARD', cardId: drawn.id }).ok);
+  assert.equal(cur(e), 'B');
+});
+
+test('PASS after drawing a playable card ends the turn and keeps the card', () => {
+  const e = makeEngine(['A', 'B', 'C']);
+  setup(e, { hands: [[num('green', 9)]], top: num('red', 5), drawPile: [num('red', 3)] });
+  e.applyIntent('A', { type: 'DRAW' }); // draws playable red 3
+  assert.equal(e.view('A').canPass, true);
+  const r = e.applyIntent('A', { type: 'PASS' });
+  assert.ok(r.ok);
+  assert.equal(hand(e, 'A').length, 2, 'kept the drawn card');
+  assert.equal(e.state.pendingPlay, null);
+  assert.equal(cur(e), 'B', 'turn ended via PASS');
+});
+
+test('PASS is rejected when there is nothing to pass', () => {
+  const e = makeEngine(['A', 'B']);
+  setup(e, { hands: [[num('red', 1)]], top: num('red', 5) });
+  assert.equal(e.applyIntent('A', { type: 'PASS' }).error, 'NOTHING_TO_PASS');
+});
+
+test('PASS cannot duck an active draw-stack', () => {
+  const e = makeEngine(['A', 'B']);
+  const d2 = C('red', TYPE.DRAW2);
+  setup(e, { hands: [[d2, spare()], [num('blue', 1)]], top: num('red', 5), drawPile: fillers(10) });
+  e.applyIntent('A', { type: 'PLAY_CARD', cardId: d2.id }); // stack → target B
+  assert.equal(e.applyIntent('B', { type: 'PASS' }).error, 'CANNOT_PASS_DURING_STACK');
 });
 
 // ---- recycling ------------------------------------------------------------

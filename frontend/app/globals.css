@@ -304,4 +304,42 @@ a { color: inherit; }
 .opp.disconnected { opacity: .55; filter: grayscale(.5); }
 .opp.disconnected .conn-badge.off { position: absolute; top: 6px; right: 6px; }
 
+
+/* ---------- UNO Flip: dark-side palette + side switch ---------- */
+.uno-card.pink   { background: linear-gradient(160deg, #f178ba, #e85aa8); }
+.uno-card.teal   { background: linear-gradient(160deg, #36c8c4, #27b3b0); }
+.uno-card.orange { background: linear-gradient(160deg, #f59e52, #e8893a); }
+.uno-card.purple { background: linear-gradient(160deg, #a87cf8, #8b5cf6); }
+
+/* The board gets a cooler, darker wash on the Dark side. */
+.board.dark-side {
+  background: radial-gradient(1200px 800px at 30% -10%, #1a1230 0%, #07060d 60%);
+}
+.side-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 800;
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.side-badge.light { background: rgba(245,245,255,.14); color: #eef; border: 1px solid rgba(255,255,255,.3); }
+.side-badge.dark  { background: rgba(139,92,246,.22); color: #d7c8ff; border: 1px solid rgba(139,92,246,.5); }
+.side-badge .dot { width: 9px; height: 9px; border-radius: 50%; }
+.side-badge.light .dot { background: #fff; box-shadow: 0 0 8px #fff; }
+.side-badge.dark .dot  { background: #8b5cf6; box-shadow: 0 0 8px #8b5cf6; }
+
+/* Side-switch animation: quick 3D flip of the table + a flash. */
+.table-center.flipping { animation: tableFlip .65s ease; }
+@keyframes tableFlip {
+  0%   { transform: perspective(1200px) rotateY(0deg); }
+  50%  { transform: perspective(1200px) rotateY(90deg) scale(.96); filter: brightness(1.6); }
+  100% { transform: perspective(1200px) rotateY(0deg); }
+}
+.flip-flash {
+  position: fixed; inset: 0; z-index: 70; pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(139,92,246,.5), transparent 60%);
+  animation: flipFlash .65s ease forwards;
+}
+@keyframes flipFlash { 0% { opacity: 0; } 35% { opacity: 1; } 100% { opacity: 0; } }
+
+.swatch.pink { background: #e85aa8; } .swatch.teal { background: #27b3b0; }
+.swatch.orange { background: #e8893a; } .swatch.purple { background: #8b5cf6; }
 /* EOF globals.css */

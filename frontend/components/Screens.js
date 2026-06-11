@@ -67,7 +67,7 @@ export function NameScreen({ initialName = '', onSubmit, onBack }) {
 
 const UNO_VARIANTS = [
   { id: 'noMercy', title: 'UNO No Mercy', tag: 'Playable now', playable: true },
-  { id: 'flip', title: 'UNO Flip', tag: 'Coming soon', playable: false },
+  { id: 'flip', title: 'UNO Flip', tag: 'Playable now', playable: true },
   { id: 'soon', title: 'Coming Soon', tag: 'Locked', playable: false },
 ];
 const OTHER_GAMES = [
@@ -75,7 +75,7 @@ const OTHER_GAMES = [
   { id: 'soon2', title: 'Coming Soon', tag: 'Locked' },
 ];
 
-export function Hub({ onPickNoMercy, onLocked }) {
+export function Hub({ onPick, onLocked }) {
   return (
     <div className="page">
       <h2>Game Hub</h2>
@@ -87,7 +87,7 @@ export function Hub({ onPickNoMercy, onLocked }) {
           <div
             key={v.id}
             className={`tile ${v.playable ? 'playable' : 'locked'}`}
-            onClick={() => (v.playable ? onPickNoMercy() : onLocked(v.title))}
+            onClick={() => (v.playable ? onPick(v.id) : onLocked(v.title))}
           >
             {!v.playable && <span className="lock-badge">🔒</span>}
             <div className="tile-title">{v.title}</div>
@@ -110,12 +110,13 @@ export function Hub({ onPickNoMercy, onLocked }) {
   );
 }
 
-export function RoomEntry({ onCreate, onJoin, onBack, busy }) {
+export function RoomEntry({ onCreate, onJoin, onBack, busy, gameType }) {
   const [code, setCode] = useState('');
+  const title = gameType === 'flip' ? 'UNO Flip' : 'UNO No Mercy';
   return (
     <div className="page" style={{ maxWidth: 640 }}>
       <button className="btn ghost" onClick={onBack}>← Back to hub</button>
-      <h2 style={{ marginTop: 16 }}>UNO No Mercy — Lobby</h2>
+      <h2 style={{ marginTop: 16 }}>{title} — Lobby</h2>
       <div className="lobby-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <div className="card-panel">
           <h3 style={{ marginTop: 0 }}>Create Room</h3>
@@ -189,16 +190,18 @@ export function Lobby({ room, playerId, onUpdateConfig, onStart, onLeave }) {
 
         <div className="card-panel">
           <h3 style={{ marginTop: 0 }}>Match settings</h3>
-          <div className="setting">
-            <div>
-              <div><b>Elimination limit</b></div>
-              <div className="muted" style={{ fontSize: 13 }}>Hand ≥ this many cards = knocked out</div>
+          {room.gameType !== 'flip' && (
+            <div className="setting">
+              <div>
+                <div><b>Elimination limit</b></div>
+                <div className="muted" style={{ fontSize: 13 }}>Hand ≥ this many cards = knocked out</div>
+              </div>
+              {isHost ? (
+                <Stepper value={room.config.eliminationLimit} min={5} max={60} step={5}
+                  onChange={(v) => onUpdateConfig({ eliminationLimit: v })} />
+              ) : (<b>{room.config.eliminationLimit}</b>)}
             </div>
-            {isHost ? (
-              <Stepper value={room.config.eliminationLimit} min={5} max={60} step={5}
-                onChange={(v) => onUpdateConfig({ eliminationLimit: v })} />
-            ) : (<b>{room.config.eliminationLimit}</b>)}
-          </div>
+          )}
           <div className="setting">
             <div>
               <div><b>Discard recycle threshold</b></div>

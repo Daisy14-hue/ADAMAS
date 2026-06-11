@@ -21,6 +21,8 @@ const ERRORS = {
   MUST_PLAY_DRAWN_CARD: 'Play the card you just drew.',
   COLOR_REQUIRED: 'Choose a color.',
   ROULETTE_COLOR_REQUIRED: 'Call a color for the roulette.',
+  NOTHING_TO_PASS: 'Nothing to pass — draw first.',
+  CANNOT_PASS_DURING_STACK: 'You can’t pass a draw stack — stack, deflect, or take it.',
 };
 
 // ---- localStorage session (pid per room) ----------------------------------
@@ -51,6 +53,7 @@ const clearSession = (code) => {
 export default function Home() {
   const [name, setName] = useState('');
   const [screen, setScreen] = useState('landing'); // landing|name|hub|entry|lobby|game
+  const [gameType, setGameType] = useState('noMercy');
   const [room, setRoom] = useState(null);
   const [roomCode, setRoomCode] = useState(null);
   const [playerId, setPlayerId] = useState(null);
@@ -153,7 +156,7 @@ export default function Home() {
 
   const createRoom = async () => {
     setBusy(true);
-    const res = await emit('createRoom', { name });
+    const res = await emit('createRoom', { name, gameType });
     setBusy(false);
     if (!res.ok) return toast(ERRORS[res.error] || res.error);
     setPlayerId(res.pid);
@@ -189,8 +192,8 @@ export default function Home() {
   let content = null;
   if (screen === 'landing') content = <Landing onPlay={goPlay} onMakeAccount={() => setScreen('name')} name={name} />;
   else if (screen === 'name') content = <NameScreen initialName={name} onSubmit={submitName} onBack={() => setScreen('landing')} />;
-  else if (screen === 'hub') content = <Hub onPickNoMercy={() => setScreen('entry')} onLocked={(t) => toast(`${t} is coming soon.`, 'info')} />;
-  else if (screen === 'entry') content = <RoomEntry onCreate={createRoom} onJoin={joinRoom} onBack={() => setScreen('hub')} busy={busy} />;
+  else if (screen === 'hub') content = <Hub onPick={(id) => { setGameType(id); setScreen('entry'); }} onLocked={(t) => toast(`${t} is coming soon.`, 'info')} />;
+  else if (screen === 'entry') content = <RoomEntry onCreate={createRoom} onJoin={joinRoom} onBack={() => setScreen('hub')} busy={busy} gameType={gameType} />;
   else if (screen === 'lobby' && room) content = <Lobby room={room} playerId={playerId} onUpdateConfig={updateConfig} onStart={startMatch} onLeave={leave} />;
   else if (screen === 'game' && view) content = <GameBoard view={view} playerId={playerId} onIntent={sendIntent} onLeave={leave} />;
   else content = <Landing onPlay={goPlay} onMakeAccount={() => setScreen('name')} name={name} />;
@@ -207,7 +210,7 @@ export default function Home() {
       {showTopbar && (
         <div className="topbar">
           <span className="logo">ADAMAS</span>
-          <span className="muted">UNO No Mercy</span>
+          <span className="muted">{room?.gameType === 'flip' ? 'UNO Flip' : 'UNO No Mercy'}</span>
           <div className="spacer" />
           {name && <span className="pill">▦ {name}</span>}
         </div>

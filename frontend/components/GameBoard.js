@@ -4,16 +4,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Card from './Card';
 import { isPlayable, needsColor } from '@/lib/cards';
 
-const COLORS = ['red', 'yellow', 'green', 'blue'];
-
 export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const me = view.players.find((p) => p.isYou) || { hand: [] };
   const opponents = view.players.filter((p) => !p.isYou);
   const myTurn = view.currentPlayerId === playerId && view.status === 'playing';
   const stack = view.drawStack || { active: false, total: 0 };
+  const side = view.side; // 'light' | 'dark' for Flip; undefined for No Mercy
+  const palette = side === 'dark' ? ['pink', 'teal', 'orange', 'purple'] : ['red', 'yellow', 'green', 'blue'];
 
   const [picker, setPicker] = useState(null); // { mode:'wild'|'roulette', card }
   const [shuffling, setShuffling] = useState(false);
+  const [flipping, setFlipping] = useState(false);
+  const prevSide = useRef(side);
   const prevTotal = useRef(stack.total);
   const prevDiscardCount = useRef(view.discardPileCount);
 
@@ -29,6 +31,17 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
 
   const stackFlash = stack.total !== prevTotal.current;
   useEffect(() => { prevTotal.current = stack.total; }, [stack.total]);
+
+  // Flip side-switch animation.
+  useEffect(() => {
+    if (side !== undefined && prevSide.current !== undefined && side !== prevSide.current) {
+      setFlipping(true);
+      const t = setTimeout(() => setFlipping(false), 650);
+      prevSide.current = side;
+      return () => clearTimeout(t);
+    }
+    prevSide.current = side;
+  }, [side]);
 
   const playCard = (card) => {
     if (!myTurn) return;
@@ -55,13 +68,16 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   }, [view.winner, view.players]);
 
   return (
-    <div className="board">
+    <div className={`board ${side === 'dark' ? 'dark-side' : ''}`}>
       {/* top bar */}
       <div className="board-top">
         <button className="btn ghost" onClick={onLeave}>← Leave</button>
         <span className="pill">Room {/* code lives in lobby */}No Mercy</span>
         <div className="spacer" />
         <ColorChip color={view.activeColor} />
+        {side && (
+          <span className={`side-badge ${side}`} title="Active side"><span className="dot" />{side} side</span>
+        )}
         <span className="turn-banner">
           {myTurn ? <span className="your-turn">● Your turn</span> :
             <>Turn: <b>{(view.players.find((p) => p.id === view.currentPlayerId) || {}).name || '—'}</b></>}
@@ -86,7 +102,7 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
       </div>
 
       {/* center table */}
-      <div className="table-center">
+      <div className={`table-center ${flipping ? 'flipping' : ''}`}>
         <div className="pile">
           <div className="pile-label">Draw ({view.drawPileCount})</div>
           <div className="draw-pile" onClick={doDraw} title={myTurn ? 'Draw' : ''}>
@@ -122,6 +138,11 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
           <button className="btn" disabled={!myTurn} onClick={doDraw}>
             {stack.active ? `Take penalty (+${stack.total})` : 'Draw card'}
           </button>
+          {view.canPass && (
+            <button className="btn primary" onClick={() => onIntent({ type: 'PASS' })} title="Keep the drawn card and end your turn">
+              Pass ↪
+            </button>
+          )}
           <button className={`btn ${me.handCount <= 2 ? 'accent2' : 'ghost'}`} onClick={sayUno} disabled={view.status !== 'playing'}>
             Say “UNO!”
           </button>
@@ -145,11 +166,13 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
           <div className="picker" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>{picker.mode === 'roulette' ? 'Call a color (roulette)' : 'Pick a color'}</h3>
             <div className="swatches">
-              {COLORS.map((c) => <div key={c} className={`swatch ${c}`} onClick={() => chooseColor(c)} title={c} />)}
+              {palette.map((c) => <div key={c} className={`swatch ${c}`} onClick={() => chooseColor(c)} title={c} />)}
             </div>
           </div>
         </div>
       )}
+
+      {flipping && <div className="flip-flash" />}
 
       {/* winner overlay */}
       {finished && (
@@ -167,7 +190,7 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
 }
 
 function ColorChip({ color }) {
-  const map = { red: '#e2433b', yellow: '#f5b914', green: '#36a85a', blue: '#2b7fd6' };
+  const map = { red: '#e2433b', yellow: '#f5b914', green: '#36a85a', blue: '#2b7fd6', pink: '#e85aa8', teal: '#27b3b0', orange: '#e8893a', purple: '#8b5cf6' };
   return (
     <span className="pill" title="Active color">
       <span style={{ width: 12, height: 12, borderRadius: 99, background: map[color] || '#888', display: 'inline-block' }} />

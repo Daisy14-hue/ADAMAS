@@ -43,6 +43,8 @@ function isWild(card) {
     'wildDraw10',
     'wildReverseDraw4',
     'wildRoulette',
+    'wildDrawTwo',
+    'wildDrawColor',
   ].includes(card.type) && !card.color;
 }
 // EOF Card.js

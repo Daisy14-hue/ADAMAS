@@ -117,6 +117,8 @@ class NoMercyEngine {
         return this._handlePlay(idx, intent);
       case 'DRAW':
         return this._handleDraw(idx);
+      case 'PASS':
+        return this._handlePass(idx);
       case 'SAY_UNO':
         s.players[idx].saidUno = true;
         return { ok: true, events: this._drain() };
@@ -370,13 +372,32 @@ class NoMercyEngine {
     }
 
     if (this._isPlayable(card)) {
-      // Must play this freshly-drawn playable card immediately.
+      // Shared draw rule: exactly one card. If it is playable the player MAY
+      // play it (only this drawn card) OR end their turn with PASS, keeping it.
       s.pendingPlay = { idx, cardId: card.id };
       this._emit('DREW_PLAYABLE', { player: player.id });
-    } else {
-      // Keep drawing (player issues DRAW again).
-      this._emit('DREW_UNPLAYABLE', { player: player.id });
+      return { ok: true, events: this._drain() };
     }
+    // Not playable → the turn ends automatically (no "keep drawing").
+    this._emit('DREW_UNPLAYABLE', { player: player.id });
+    s.current = this._nextIndex(idx, s.direction, 1);
+    this._emit('TURN_CHANGED', { player: s.players[s.current].id });
+    return { ok: true, events: this._drain() };
+  }
+
+  /**
+   * PASS — end the turn after a voluntary draw produced a PLAYABLE card the
+   * player chooses not to play (they keep it). Only legal in that exact spot; it
+   * is NOT a generic "skip my turn" and cannot duck an active draw-stack.
+   */
+  _handlePass(idx) {
+    const s = this.state;
+    if (s.drawStack) return this._err('CANNOT_PASS_DURING_STACK');
+    if (!s.pendingPlay || s.pendingPlay.idx !== idx) return this._err('NOTHING_TO_PASS');
+    s.pendingPlay = null;
+    this._emit('TURN_PASSED', { player: s.players[idx].id });
+    s.current = this._nextIndex(idx, s.direction, 1);
+    this._emit('TURN_CHANGED', { player: s.players[s.current].id });
     return { ok: true, events: this._drain() };
   }
 
@@ -551,6 +572,7 @@ class NoMercyEngine {
         ? { active: true, total: s.drawStack.total, lastValue: s.drawStack.lastValue, chainActive: s.drawStack.chainActive }
         : { active: false, total: 0 },
       config: { ...s.config },
+      canPass: !!(s.pendingPlay && s.pendingPlay.idx === this._indexOf(playerId)),
       players: s.players.map((p) => ({
         id: p.id,
         name: p.name,
