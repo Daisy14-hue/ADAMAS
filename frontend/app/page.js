@@ -25,6 +25,18 @@ const ERRORS = {
   CANNOT_PASS_DURING_STACK: 'You can’t pass a draw stack — stack, deflect, or take it.',
 };
 
+// Cheeky one-liners for the "Coming Soon" gag (pick one at random).
+const COMING_SOON_GAGS = [
+  'Our hamsters are coding as fast as their little legs allow. 🐹',
+  'Locked tighter than your hand when you forget to yell “UNO!”. 🔒',
+  'Coming soon™ — and that tiny ™ is doing a LOT of heavy lifting.',
+  'It’s not done. It’s “artisanally unfinished.” 🎨',
+  'We pinky-promised the deadline. The pinky has since filed a complaint. 🤙',
+  'Patience, champion. Even Draw 10 needed time to become this cruel.',
+  'This tile is in witness protection. New identity drops later. 🕶️',
+];
+const randomGag = () => COMING_SOON_GAGS[Math.floor(Math.random() * COMING_SOON_GAGS.length)];
+
 // ---- localStorage session (pid per room) ----------------------------------
 const LS_LAST = 'adamas:lastRoom';
 const LS_NAME = 'adamas:name';
@@ -54,6 +66,7 @@ export default function Home() {
   const [name, setName] = useState('');
   const [screen, setScreen] = useState('landing'); // landing|name|hub|entry|lobby|game
   const [gameType, setGameType] = useState('noMercy');
+  const [gag, setGag] = useState(null); // { title, msg } for the Coming Soon popup
   const [room, setRoom] = useState(null);
   const [roomCode, setRoomCode] = useState(null);
   const [playerId, setPlayerId] = useState(null);
@@ -192,16 +205,30 @@ export default function Home() {
   let content = null;
   if (screen === 'landing') content = <Landing onPlay={goPlay} onMakeAccount={() => setScreen('name')} name={name} />;
   else if (screen === 'name') content = <NameScreen initialName={name} onSubmit={submitName} onBack={() => setScreen('landing')} />;
-  else if (screen === 'hub') content = <Hub onPick={(id) => { setGameType(id); setScreen('entry'); }} onLocked={(t) => toast(`${t} is coming soon.`, 'info')} />;
+  else if (screen === 'hub') content = <Hub onPick={(id) => { setGameType(id); setScreen('entry'); }} onLocked={(t) => setGag({ title: t, msg: randomGag() })} />;
   else if (screen === 'entry') content = <RoomEntry onCreate={createRoom} onJoin={joinRoom} onBack={() => setScreen('hub')} busy={busy} gameType={gameType} />;
   else if (screen === 'lobby' && room) content = <Lobby room={room} playerId={playerId} onUpdateConfig={updateConfig} onStart={startMatch} onLeave={leave} />;
   else if (screen === 'game' && view) content = <GameBoard view={view} playerId={playerId} onIntent={sendIntent} onLeave={leave} />;
   else content = <Landing onPlay={goPlay} onMakeAccount={() => setScreen('name')} name={name} />;
 
   const showTopbar = screen === 'hub' || screen === 'entry' || screen === 'lobby';
+  const showBg = screen !== 'game'; // arcade backdrop on every menu screen, not in-game
 
   return (
     <>
+      {showBg && (
+        <div className="bg-fx" aria-hidden="true">
+          <div className="bg-aurora">
+            <span className="blob b1" />
+            <span className="blob b2" />
+            <span className="blob b3" />
+            <span className="blob b4" />
+          </div>
+          <div className="stars" />
+          <div className="stars stars2" />
+          <div className="bg-grid" />
+        </div>
+      )}
       {reconnecting && (
         <div className="reconnect-banner">
           <span className="spin" /> Reconnecting…
@@ -216,6 +243,18 @@ export default function Home() {
         </div>
       )}
       {content}
+      {gag && (
+        <div className="overlay gag-overlay" onClick={() => setGag(null)}>
+          <div className="gag-card" onClick={(e) => e.stopPropagation()}>
+            <button className="gag-close" onClick={() => setGag(null)} aria-label="Close">×</button>
+            <div className="gag-emoji">🚧</div>
+            <h3 className="gag-title">{gag.title} — Coming Soon™</h3>
+            <p className="gag-msg">{gag.msg}</p>
+            <button className="btn primary" onClick={() => setGag(null)}>Fine, I’ll wait 😤</button>
+            <div className="gag-sparks"><span /><span /><span /><span /><span /><span /></div>
+          </div>
+        </div>
+      )}
       <div className="toast-wrap">
         {toasts.map((t) => <div key={t.id} className={`toast ${t.kind === 'info' ? 'info' : t.kind === 'good' ? 'good' : ''}`}>{t.msg}</div>)}
       </div>

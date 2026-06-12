@@ -342,4 +342,133 @@ a { color: inherit; }
 
 .swatch.pink { background: #e85aa8; } .swatch.teal { background: #27b3b0; }
 .swatch.orange { background: #e8893a; } .swatch.purple { background: #8b5cf6; }
+
+/* ============================================================
+   ARCADE VISUAL POLISH (presentation only — additive)
+   ============================================================ */
+
+/* ---- layered animated background (behind all content) ---- */
+.bg-fx { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+
+.bg-aurora { position: absolute; inset: 0; }
+.bg-aurora .blob {
+  position: absolute; width: 55vmax; height: 55vmax; border-radius: 50%;
+  filter: blur(52px) saturate(1.35); opacity: .55; mix-blend-mode: screen; will-change: transform;
+}
+.blob.b1 { background: radial-gradient(circle, #7c5cff, transparent 58%); top: -16%; left: -10%; animation: blobA 26s ease-in-out infinite; }
+.blob.b2 { background: radial-gradient(circle, #00d4ff, transparent 58%); top: 6%; right: -16%; animation: blobB 33s ease-in-out infinite; }
+.blob.b3 { background: radial-gradient(circle, #e85aa8, transparent 58%); bottom: -22%; left: 12%; animation: blobC 30s ease-in-out infinite; }
+.blob.b4 { background: radial-gradient(circle, #2fd07a, transparent 58%); bottom: -14%; right: 8%; animation: blobD 38s ease-in-out infinite; }
+@keyframes blobA { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(8vw,6vh) scale(1.18); } }
+@keyframes blobB { 0%,100% { transform: translate(0,0) scale(1.05); } 50% { transform: translate(-7vw,8vh) scale(.9); } }
+@keyframes blobC { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(6vw,-7vh) scale(1.2); } }
+@keyframes blobD { 0%,100% { transform: translate(0,0) scale(.95); } 50% { transform: translate(-6vw,-5vh) scale(1.1); } }
+
+/* drifting starfield (two parallax layers) */
+.stars {
+  position: absolute; inset: -50%; background-repeat: repeat; opacity: .8; will-change: transform;
+  background-image:
+    radial-gradient(2px 2px at 20px 30px, rgba(255,255,255,.85), transparent),
+    radial-gradient(1px 1px at 120px 80px, rgba(255,255,255,.5), transparent),
+    radial-gradient(1.5px 1.5px at 210px 150px, rgba(185,205,255,.7), transparent),
+    radial-gradient(1px 1px at 300px 60px, rgba(255,255,255,.45), transparent),
+    radial-gradient(1.5px 1.5px at 80px 200px, rgba(205,185,255,.6), transparent);
+  background-size: 300px 220px;
+  animation: starDrift 70s linear infinite;
+}
+.stars2 { opacity: .5; animation-duration: 120s; animation-direction: reverse; }
+@keyframes starDrift { from { transform: translate3d(0,0,0); } to { transform: translate3d(-340px,-240px,0); } }
+
+/* faint arcade grid, masked to a soft vignette */
+.bg-grid {
+  position: absolute; inset: 0; opacity: .14;
+  background-image:
+    linear-gradient(rgba(124,92,255,.8) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124,92,255,.8) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(circle at 50% 38%, #000 35%, transparent 80%);
+  mask-image: radial-gradient(circle at 50% 38%, #000 35%, transparent 80%);
+  animation: gridPan 40s linear infinite;
+}
+@keyframes gridPan { from { background-position: 0 0; } to { background-position: 48px 48px; } }
+
+/* let the animated backdrop show through the body's base gradient */
+body { background-attachment: fixed; }
+
+/* ---- arcade glow on the brand title ---- */
+.brand { animation: rise .8s ease both, brandGlow 4.5s ease-in-out infinite; }
+@keyframes brandGlow {
+  0%,100% { filter: drop-shadow(0 10px 40px rgba(124,92,255,.35)); }
+  50%     { filter: drop-shadow(0 10px 52px rgba(0,212,255,.5)); }
+}
+
+/* ---- arcade polish: buttons ---- */
+.btn { will-change: transform; }
+.btn:active { transform: translateY(1px) scale(.97); }
+.btn.big:active { transform: translateY(1px) scale(.98); }
+.btn.primary:hover {
+  box-shadow: 0 0 0 1px rgba(255,255,255,.15), 0 10px 30px rgba(124,92,255,.5), 0 0 22px rgba(124,92,255,.5);
+}
+.btn.accent2:hover {
+  box-shadow: 0 0 0 1px rgba(255,255,255,.15), 0 10px 30px rgba(0,212,255,.45), 0 0 22px rgba(0,212,255,.5);
+}
+.btn.danger:hover { box-shadow: 0 10px 30px rgba(255,77,94,.45), 0 0 22px rgba(255,77,94,.5); }
+
+/* ---- arcade polish: hub tiles ---- */
+.tile { will-change: transform; }
+.tile:active { transform: translateY(-1px) scale(.99); }
+.tile.playable { animation: tileGlow 3.2s ease-in-out infinite; }
+.tile.playable:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 0 0 1px rgba(47,208,122,.55), 0 16px 38px rgba(0,0,0,.5), 0 0 28px rgba(47,208,122,.45);
+}
+@keyframes tileGlow {
+  0%,100% { box-shadow: 0 0 0 1px rgba(47,208,122,.2), 0 10px 28px rgba(0,0,0,.4); }
+  50%     { box-shadow: 0 0 0 1px rgba(47,208,122,.4), 0 10px 28px rgba(0,0,0,.4), 0 0 20px rgba(47,208,122,.35); }
+}
+/* locked tiles are clickable (they trigger the gag) and give a cheeky wiggle */
+.tile.locked { cursor: pointer; }
+.tile.locked:hover { transform: none; filter: grayscale(.35) brightness(1.06); animation: wiggle .45s ease; }
+@keyframes wiggle { 0%,100% { transform: rotate(0); } 20% { transform: rotate(-2deg); } 60% { transform: rotate(2deg); } }
+
+/* ---- "Coming Soon" gag popup ---- */
+.gag-overlay { z-index: 75; }
+.gag-card {
+  position: relative; max-width: 390px; padding: 32px 34px 26px; text-align: center;
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--border); border-radius: 20px; overflow: hidden;
+  box-shadow: var(--shadow), 0 0 44px rgba(124,92,255,.4);
+  animation: gagPop .36s cubic-bezier(.2,.9,.3,1.45);
+}
+.gag-close {
+  position: absolute; top: 8px; right: 12px; background: transparent; border: none;
+  color: var(--muted); font-size: 24px; line-height: 1; cursor: pointer;
+}
+.gag-close:hover { color: #fff; }
+.gag-emoji { font-size: 64px; animation: gagBounce 1.2s ease-in-out infinite; }
+.gag-title { margin: 6px 0 4px; font-size: 22px; }
+.gag-msg { color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+@keyframes gagPop { from { opacity: 0; transform: scale(.7) translateY(22px); } to { opacity: 1; transform: none; } }
+@keyframes gagBounce { 0%,100% { transform: translateY(0) rotate(-5deg); } 50% { transform: translateY(-10px) rotate(5deg); } }
+.gag-sparks { position: absolute; inset: 0; pointer-events: none; }
+.gag-sparks span {
+  position: absolute; bottom: 70px; width: 9px; height: 9px; border-radius: 50%; opacity: 0;
+  animation: gagSpark 2.2s ease-in infinite;
+}
+.gag-sparks span:nth-child(1) { left: 12%; background: #7c5cff; animation-delay: 0s; }
+.gag-sparks span:nth-child(2) { left: 30%; background: #00d4ff; animation-delay: .4s; }
+.gag-sparks span:nth-child(3) { left: 50%; background: #2fd07a; animation-delay: .8s; }
+.gag-sparks span:nth-child(4) { left: 68%; background: #f5b914; animation-delay: 1.2s; }
+.gag-sparks span:nth-child(5) { left: 84%; background: #e85aa8; animation-delay: .6s; }
+.gag-sparks span:nth-child(6) { left: 42%; background: #00d4ff; animation-delay: 1.6s; }
+@keyframes gagSpark {
+  0% { transform: translateY(0) scale(.5); opacity: 0; }
+  18% { opacity: 1; }
+  100% { transform: translateY(-170px) scale(1); opacity: 0; }
+}
+
+/* --- bg-fx visibility fix --- */
+.bg-fx { z-index: 0 !important; }
+.topbar, .toast-wrap, .reconnect-banner, .landing, .page, .overlay { position: relative; z-index: 1; }
+
 /* EOF globals.css */
