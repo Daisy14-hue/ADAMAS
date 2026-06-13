@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getSocket, emit } from '@/lib/socket';
 import { Landing, NameScreen, Hub, RoomEntry, Lobby } from '@/components/Screens';
 import GameBoard from '@/components/GameBoard';
+import { unlockAudio, setMuted as setSoundMuted, playClick, playCardSound, playYourTurn, playWin, playError } from '@/lib/sound';
 
 const ERRORS = {
   ROOM_NOT_FOUND: 'No room with that code.',
@@ -74,7 +75,9 @@ export default function Home() {
   const [toasts, setToasts] = useState([]);
   const [busy, setBusy] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [muted, setMutedState] = useState(false);
   const afterName = useRef(null);
+  const turnMineRef = useRef(false);
 
   // refs so the once-mounted socket effect reads current values
   const nameRef = useRef('');
@@ -85,6 +88,7 @@ export default function Home() {
   useEffect(() => { playerIdRef.current = playerId; }, [playerId]);
 
   const toast = (msg, kind = 'err') => {
+    if (kind === 'err') playError();
     const id = Math.random().toString(36).slice(2);
     setToasts((t) => [...t, { id, msg, kind }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
@@ -129,7 +133,16 @@ export default function Home() {
     const onConnect = () => { tryRejoin(); };
     const onDisconnect = () => { if (roomCodeRef.current) setReconnecting(true); };
     const onLobby = (data) => { setRoom(data); if (data.code) setRoomCode(data.code); };
-    const onState = ({ view: v }) => { setView(v); setScreen('game'); };
+    const onState = ({ view: v, events = [] }) => {
+      setView(v);
+      setScreen('game');
+      const myTurnNow = v.status === 'playing' && v.currentPlayerId === playerIdRef.current;
+      const becameMyTurn = myTurnNow && !turnMineRef.current;
+      turnMineRef.current = myTurnNow;
+      if (Array.isArray(events) && events.some((e) => e.type === 'MATCH_FINISHED')) playWin();
+      else if (becameMyTurn) playYourTurn();
+      else if (Array.isArray(events) && events.some((e) => e.type === 'CARD_PLAYED' || e.type === 'RACE_DISCARD')) playCardSound();
+    };
     const onEnded = ({ reason }) => {
       toast(reason === 'PLAYER_REMOVED' || reason === 'PLAYER_DISCONNECTED'
         ? 'A player dropped and didn’t return — match ended.'
@@ -153,6 +166,22 @@ export default function Home() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Autoplay unlock + UI click feedback (audio must start on a user gesture).
+  useEffect(() => {
+    const onAnyClick = (e) => {
+      unlockAudio();
+      const el = e.target;
+      if (el && el.closest && el.closest('button')) playClick();
+    };
+    window.addEventListener('click', onAnyClick);
+    return () => window.removeEventListener('click', onAnyClick);
+  }, []);
+
+  const toggleMute = () => {
+    unlockAudio();
+    setMutedState((m) => { const next = !m; setSoundMuted(next); return next; });
+  };
 
   // ---- actions ----
   const goPlay = () => {
@@ -216,6 +245,9 @@ export default function Home() {
 
   return (
     <>
+      <button className="mute-toggle" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'} aria-label={muted ? 'Unmute' : 'Mute'}>
+        {muted ? '🔇' : '🔊'}
+      </button>
       {showBg && (
         <div className="bg-fx" aria-hidden="true">
           <div className="bg-aurora">

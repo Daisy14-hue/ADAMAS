@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Card from './Card';
+import { playWheelSpin } from '@/lib/sound';
 
 const PALETTE = ['#7c5cff', '#00d4ff', '#2fd07a', '#f5b914', '#e2433b', '#e85aa8', '#27b3b0', '#e8893a', '#8b5cf6', '#3aa856', '#2b7fd6', '#ff7ab6'];
 const SHORT = ['UNO!', '#', 'COLOR', 'RED', 'BLUE', 'GREEN', 'YEL', 'TRADE', 'RACE', '+1 ALL', 'SWAP', '+4'];
@@ -154,6 +155,7 @@ export default function SpinOverlays({ view, onIntent }) {
     const sr = view.spinResult;
     if (sr && sr.spinId && sr.spinId !== lastSpin.current) {
       lastSpin.current = sr.spinId;
+      playWheelSpin();
       const segCenter = (sr.outcomeId - 1) * 30 + 15;
       const targetMod = (((-segCenter) % 360) + 360) % 360;
       setRotation((prev) => { let r = prev - (prev % 360) + targetMod; while (r < prev + 360 * 4) r += 360; return r; });

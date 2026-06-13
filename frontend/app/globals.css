@@ -520,4 +520,13 @@ body { background-attachment: fixed; }
   50%     { box-shadow: 0 0 0 1px rgba(124,92,255,.6), 0 0 30px rgba(124,92,255,.7); }
 }
 
+.mute-toggle {
+  position: fixed; top: 12px; right: 14px; z-index: 95;
+  width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--border); background: rgba(22,27,38,.8); backdrop-filter: blur(6px);
+  color: var(--text); font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  transition: transform .12s ease, box-shadow .2s ease, background .2s ease;
+}
+.mute-toggle:hover { transform: translateY(-1px) scale(1.05); background: rgba(35,44,62,.9); box-shadow: 0 0 18px rgba(124,92,255,.4); }
+.mute-toggle:active { transform: scale(.92); }
 /* EOF globals.css */
