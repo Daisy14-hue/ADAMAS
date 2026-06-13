@@ -1,7 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { NoMercyEngine, DEFAULT_CONFIG } = require('./engine');
+const { NoMercyEngine, DEFAULT_CONFIG } = require('./engine/noMercy');
 const { FlipEngine } = require('./engine/flip');
 const { SpinEngine } = require('./engine/spin');
 

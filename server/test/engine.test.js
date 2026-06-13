@@ -3,9 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { NoMercyEngine } = require('../src/engine/NoMercyEngine');
-const { makeRng } = require('../src/engine/deck');
-const { TYPE } = require('../src/engine/constants');
+const { NoMercyEngine } = require('../src/engine/noMercy/NoMercyEngine');
+const { makeRng } = require('../src/engine/noMercy/deck');
+const { TYPE } = require('../src/engine/noMercy/constants');
 
 // ---- test fixtures --------------------------------------------------------
 

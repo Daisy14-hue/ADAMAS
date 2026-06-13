@@ -3,8 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildDeck, shuffle, makeRng } = require('../src/engine/deck');
-const { DECK_SIZE, TYPE } = require('../src/engine/constants');
+const { buildDeck, shuffle, makeRng } = require('../src/engine/noMercy/deck');
+const { DECK_SIZE, TYPE } = require('../src/engine/noMercy/constants');
 
 test('deck builds to exactly 168 cards', () => {
   const deck = buildDeck();
