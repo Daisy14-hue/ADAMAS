@@ -348,7 +348,7 @@ a { color: inherit; }
    ============================================================ */
 
 /* ---- layered animated background (behind all content) ---- */
-.bg-fx { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.bg-fx { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
 
 .bg-aurora { position: absolute; inset: 0; }
 .bg-aurora .blob {
@@ -467,8 +467,57 @@ body { background-attachment: fixed; }
   100% { transform: translateY(-170px) scale(1); opacity: 0; }
 }
 
-/* --- bg-fx visibility fix --- */
-.bg-fx { z-index: 0 !important; }
-.topbar, .toast-wrap, .reconnect-banner, .landing, .page, .overlay { position: relative; z-index: 1; }
+
+/* ---------- UNO Spin: wheel, race, choice pickers ---------- */
+.spin-overlay { z-index: 77; }
+.wheel-card {
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--border); border-radius: 20px; padding: 24px; text-align: center;
+  box-shadow: var(--shadow), 0 0 50px rgba(124,92,255,.4);
+}
+.wheel-wrap { position: relative; width: 300px; height: 300px; margin: 0 auto; }
+.wheel { width: 300px; height: 300px; display: block; transition: transform 2.6s cubic-bezier(.15,.85,.25,1); }
+.wheel-pointer {
+  position: absolute; top: -4px; left: 50%; transform: translateX(-50%); z-index: 2;
+  width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent;
+  border-top: 26px solid #fff; filter: drop-shadow(0 2px 4px rgba(0,0,0,.55));
+}
+.spin-result { margin-top: 16px; font-size: 24px; font-weight: 900; min-height: 30px; opacity: .55; transition: opacity .3s ease, transform .3s ease; }
+.spin-result.show {
+  opacity: 1; transform: scale(1.08);
+  background: linear-gradient(120deg, #fff, #b9a6ff, #00d4ff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+.race-overlay { z-index: 78; }
+.race-card {
+  text-align: center; background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--border); border-radius: 20px; padding: 28px 36px; box-shadow: var(--shadow);
+}
+.race-title { font-size: 26px; font-weight: 900; margin-bottom: 4px; color: var(--warn); }
+.tap-btn {
+  margin-top: 18px; width: 180px; height: 180px; border-radius: 50%; border: none; cursor: pointer;
+  font-size: 34px; font-weight: 900; color: #04222b;
+  background: radial-gradient(circle at 50% 35%, #6ff0ff, var(--accent-2));
+  box-shadow: 0 0 0 6px rgba(0,212,255,.25), 0 12px 40px rgba(0,212,255,.5);
+  animation: tapPulse .8s ease-in-out infinite;
+}
+.tap-btn:active { transform: scale(.94); }
+.tap-btn.tapped { background: radial-gradient(circle at 50% 35%, #9affc0, var(--good)); animation: none; cursor: default; color: #053; }
+@keyframes tapPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
+.spin-choice { max-width: 470px; }
+.spin-choice h3 { margin-top: 0; }
+.choice-hand { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 14px 0; max-height: 250px; overflow: auto; }
+.choice-hand .card-slot { cursor: pointer; border-radius: 12px; transition: transform .12s ease; }
+.choice-hand .card-slot:hover { transform: translateY(-6px); }
+.choice-hand .card-slot.sel { outline: 3px solid var(--good); outline-offset: 2px; border-radius: 10px; }
+.num-grid { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
+
+.spin-btn { animation: spinBtnPulse 1.4s ease-in-out infinite; }
+@keyframes spinBtnPulse {
+  0%,100% { box-shadow: 0 0 0 1px rgba(124,92,255,.4), 0 0 18px rgba(124,92,255,.4); }
+  50%     { box-shadow: 0 0 0 1px rgba(124,92,255,.6), 0 0 30px rgba(124,92,255,.7); }
+}
 
 /* EOF globals.css */

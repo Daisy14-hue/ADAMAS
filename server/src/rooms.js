@@ -3,8 +3,9 @@
 const { randomUUID } = require('crypto');
 const { NoMercyEngine, DEFAULT_CONFIG } = require('./engine');
 const { FlipEngine } = require('./engine/flip');
+const { SpinEngine } = require('./engine/spin');
 
-const GAME_TYPES = new Set(['noMercy', 'flip']);
+const GAME_TYPES = new Set(['noMercy', 'flip', 'spin']);
 
 /**
  * In-memory room/lobby manager for ADAMAS Phase 1.
@@ -154,7 +155,7 @@ class RoomManager {
     if (room.status !== 'lobby') return { error: 'MATCH_ALREADY_STARTED' };
     if (room.players.length < MIN_PLAYERS) return { error: 'NEED_AT_LEAST_2_PLAYERS' };
 
-    const EngineCls = room.gameType === 'flip' ? FlipEngine : NoMercyEngine;
+    const EngineCls = room.gameType === 'flip' ? FlipEngine : room.gameType === 'spin' ? SpinEngine : NoMercyEngine;
     room.engine = new EngineCls({
       players: room.players.map((p) => ({ id: p.pid, name: p.name, isHost: p.isHost })),
       config: room.config,

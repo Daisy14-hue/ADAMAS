@@ -68,6 +68,7 @@ export function NameScreen({ initialName = '', onSubmit, onBack }) {
 const UNO_VARIANTS = [
   { id: 'noMercy', title: 'UNO No Mercy', tag: 'Playable now', playable: true },
   { id: 'flip', title: 'UNO Flip', tag: 'Playable now', playable: true },
+  { id: 'spin', title: 'UNO Spin', tag: 'Playable now', playable: true },
   { id: 'soon', title: 'Coming Soon', tag: 'Locked', playable: false },
 ];
 const OTHER_GAMES = [
@@ -112,7 +113,7 @@ export function Hub({ onPick, onLocked }) {
 
 export function RoomEntry({ onCreate, onJoin, onBack, busy, gameType }) {
   const [code, setCode] = useState('');
-  const title = gameType === 'flip' ? 'UNO Flip' : 'UNO No Mercy';
+  const title = gameType === 'flip' ? 'UNO Flip' : gameType === 'spin' ? 'UNO Spin' : 'UNO No Mercy';
   return (
     <div className="page" style={{ maxWidth: 640 }}>
       <button className="btn ghost" onClick={onBack}>← Back to hub</button>

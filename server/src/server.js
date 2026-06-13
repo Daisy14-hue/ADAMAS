@@ -42,6 +42,7 @@ function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
   // pid -> grace removal timer (kept in the socket layer because firing it needs
   // to broadcast over io).
   const graceTimers = new Map();
+  const raceTimers = new Map(); // code -> timeout for the UNO Spin race window
   const clearGrace = (pid) => {
     const t = graceTimers.get(pid);
     if (t) {
@@ -80,6 +81,29 @@ function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
     }, graceMs);
     if (typeof timer.unref === "function") timer.unref(); // never block process exit
     graceTimers.set(pid, timer);
+  };
+
+  // Generic hook: if an engine emits a RACE_OPENED event (UNO Spin), schedule a
+  // server-side timeout that injects a RACE_TIMEOUT intent if nobody taps in time.
+  // Engine-agnostic — engines that never emit RACE_OPENED are unaffected.
+  const scheduleRaceTimeout = (room, events) => {
+    if (!room || !Array.isArray(events)) return;
+    const opened = events.find((e) => e.type === 'RACE_OPENED');
+    if (!opened) return;
+    const code = room.code;
+    const existing = raceTimers.get(code);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      raceTimers.delete(code);
+      const live = rooms.getRoom(code);
+      if (!live || live.status !== 'playing') return;
+      const { room: r2, result, error } = rooms.applyIntent(code, opened.spinnerId, { type: 'RACE_TIMEOUT' });
+      if (error || !result || !result.ok) return;
+      broadcastGame(r2, result.events);
+      if (r2.status === 'finished') broadcastLobby(r2);
+    }, (opened.windowMs || 5000) + 250);
+    if (typeof timer.unref === 'function') timer.unref();
+    raceTimers.set(code, timer);
   };
 
   io.on('connection', (socket) => {
@@ -141,6 +165,7 @@ function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
       if (!result.ok) return ack(cb, { ok: false, error: result.error });
       ack(cb, { ok: true });
       broadcastGame(room, result.events);
+      scheduleRaceTimeout(room, result.events);
       if (room.status === 'finished') broadcastLobby(room);
     });
 

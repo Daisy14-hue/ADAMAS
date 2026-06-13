@@ -237,7 +237,7 @@ export default function Home() {
       {showTopbar && (
         <div className="topbar">
           <span className="logo">ADAMAS</span>
-          {(screen === 'entry' || screen === 'lobby') && <span className="muted">{gameType === 'flip' ? 'UNO Flip' : 'UNO No Mercy'}</span>}
+          {(screen === 'entry' || screen === 'lobby') && <span className="muted">{gameType === 'flip' ? 'UNO Flip' : gameType === 'spin' ? 'UNO Spin' : 'UNO No Mercy'}</span>}
           <div className="spacer" />
           {name && <span className="pill">▦ {name}</span>}
         </div>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Card from './Card';
 import { isPlayable, needsColor } from '@/lib/cards';
+import SpinOverlays from './SpinOverlays';
 
 export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const me = view.players.find((p) => p.isYou) || { hand: [] };
@@ -135,7 +136,12 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
       {/* my hand + controls */}
       <div className="hand-wrap">
         <div className="controls">
-          <button className="btn" disabled={!myTurn} onClick={doDraw}>
+          {view.mustSpin && (
+            <button className="btn primary spin-btn" onClick={() => onIntent({ type: 'SPIN' })} title="Forced — spin the wheel">
+              🎡 Spin the Wheel
+            </button>
+          )}
+          <button className="btn" disabled={!myTurn || view.mustSpin} onClick={doDraw}>
             {stack.active ? `Take penalty (+${stack.total})` : 'Draw card'}
           </button>
           {view.canPass && (
@@ -173,6 +179,8 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
       )}
 
       {flipping && <div className="flip-flash" />}
+
+      <SpinOverlays view={view} onIntent={onIntent} />
 
       {/* winner overlay */}
       {finished && (
