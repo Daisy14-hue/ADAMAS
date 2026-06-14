@@ -72,15 +72,15 @@ const UNO_VARIANTS = [
   { id: 'soon', title: 'Coming Soon', tag: 'Locked', playable: false },
 ];
 const OTHER_GAMES = [
-  { id: 'monopoly', title: 'Monopoly', tag: 'Coming soon' },
-  { id: 'soon2', title: 'Coming Soon', tag: 'Locked' },
+  { id: 'monopoly', title: 'Monopoly', tag: 'Phase 1', playable: true },
+  { id: 'soon2', title: 'Coming Soon', tag: 'Locked', playable: false },
 ];
 
 export function Hub({ onPick, onLocked }) {
   return (
     <div className="page">
       <h2>Game Hub</h2>
-      <p className="muted" style={{ marginTop: -8 }}>Pick your poison. One playable, the rest landing soon.</p>
+      <p className="muted" style={{ marginTop: -8 }}>Pick your poison. Plenty playable, more landing soon.</p>
 
       <h3 style={{ marginTop: 24 }}>UNO</h3>
       <div className="hub-grid">
@@ -100,8 +100,12 @@ export function Hub({ onPick, onLocked }) {
       <h3 style={{ marginTop: 28 }}>More</h3>
       <div className="hub-grid">
         {OTHER_GAMES.map((g) => (
-          <div key={g.id} className="tile locked" onClick={() => onLocked(g.title)}>
-            <span className="lock-badge">🔒</span>
+          <div
+            key={g.id}
+            className={`tile ${g.playable ? 'playable' : 'locked'}`}
+            onClick={() => (g.playable ? onPick(g.id) : onLocked(g.title))}
+          >
+            {!g.playable && <span className="lock-badge">🔒</span>}
             <div className="tile-title">{g.title}</div>
             <div className="pill">{g.tag}</div>
           </div>
@@ -113,7 +117,7 @@ export function Hub({ onPick, onLocked }) {
 
 export function RoomEntry({ onCreate, onJoin, onBack, busy, gameType }) {
   const [code, setCode] = useState('');
-  const title = gameType === 'flip' ? 'UNO Flip' : gameType === 'spin' ? 'UNO Spin' : 'UNO No Mercy';
+  const title = gameType === 'flip' ? 'UNO Flip' : gameType === 'spin' ? 'UNO Spin' : gameType === 'monopoly' ? 'Monopoly' : 'UNO No Mercy';
   return (
     <div className="page" style={{ maxWidth: 640 }}>
       <button className="btn ghost" onClick={onBack}>← Back to hub</button>

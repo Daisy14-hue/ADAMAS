@@ -4,8 +4,9 @@ const { randomUUID } = require('crypto');
 const { NoMercyEngine, DEFAULT_CONFIG } = require('./engine/noMercy');
 const { FlipEngine } = require('./engine/flip');
 const { SpinEngine } = require('./engine/spin');
+const { MonopolyEngine } = require('./engine/monopoly');
 
-const GAME_TYPES = new Set(['noMercy', 'flip', 'spin']);
+const GAME_TYPES = new Set(['noMercy', 'flip', 'spin', 'monopoly']);
 
 /**
  * In-memory room/lobby manager for ADAMAS Phase 1.
@@ -41,7 +42,7 @@ function clampInt(v, min, max, fallback) {
 
 // ---- defensive guard rails (NOT game rules) ------------------------------
 const VALID_COLORS = new Set(['red', 'yellow', 'green', 'blue', 'pink', 'teal', 'orange', 'purple']);
-const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT']);
+const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN']);
 const isShortStr = (v) => typeof v === 'string' && v.length > 0 && v.length <= 64;
 const isColorStr = (v) => typeof v === 'string' && VALID_COLORS.has(v);
 const isIdList = (v) => Array.isArray(v) && v.length <= 64 && v.every(isShortStr);
@@ -76,6 +77,8 @@ function validateIntent(intent) {
     case 'SPIN':
     case 'RACE_TAP':
     case 'RACE_TIMEOUT':
+    case 'ROLL':       // Monopoly
+    case 'END_TURN':   // Monopoly
       return true;
     default:
       return false;
@@ -200,7 +203,11 @@ class RoomManager {
     if (room.status !== 'lobby') return { error: 'MATCH_ALREADY_STARTED' };
     if (room.players.length < MIN_PLAYERS) return { error: 'NEED_AT_LEAST_2_PLAYERS' };
 
-    const EngineCls = room.gameType === 'flip' ? FlipEngine : room.gameType === 'spin' ? SpinEngine : NoMercyEngine;
+    const EngineCls =
+      room.gameType === 'flip' ? FlipEngine
+      : room.gameType === 'spin' ? SpinEngine
+      : room.gameType === 'monopoly' ? MonopolyEngine
+      : NoMercyEngine;
     room.engine = new EngineCls({
       players: room.players.map((p) => ({ id: p.pid, name: p.name, isHost: p.isHost })),
       config: room.config,

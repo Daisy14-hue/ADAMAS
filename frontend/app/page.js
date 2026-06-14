@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getSocket, emit } from '@/lib/socket';
 import { Landing, NameScreen, Hub, RoomEntry, Lobby } from '@/components/Screens';
 import GameBoard from '@/components/GameBoard';
+import MonopolyBoard from '@/components/MonopolyBoard';
 import { unlockAudio, setMuted as setSoundMuted, playClick, playCardSound, playYourTurn, playWin, playError } from '@/lib/sound';
 
 const ERRORS = {
@@ -237,7 +238,9 @@ export default function Home() {
   else if (screen === 'hub') content = <Hub onPick={(id) => { setGameType(id); setScreen('entry'); }} onLocked={(t) => setGag({ title: t, msg: randomGag() })} />;
   else if (screen === 'entry') content = <RoomEntry onCreate={createRoom} onJoin={joinRoom} onBack={() => setScreen('hub')} busy={busy} gameType={gameType} />;
   else if (screen === 'lobby' && room) content = <Lobby room={room} playerId={playerId} onUpdateConfig={updateConfig} onStart={startMatch} onLeave={leave} />;
-  else if (screen === 'game' && view) content = <GameBoard view={view} playerId={playerId} onIntent={sendIntent} onLeave={leave} />;
+  else if (screen === 'game' && view) content = Array.isArray(view.board)
+    ? <MonopolyBoard view={view} playerId={playerId} onIntent={sendIntent} onLeave={leave} />
+    : <GameBoard view={view} playerId={playerId} onIntent={sendIntent} onLeave={leave} />;
   else content = <Landing onPlay={goPlay} onMakeAccount={() => setScreen('name')} name={name} />;
 
   const showTopbar = screen === 'hub' || screen === 'entry' || screen === 'lobby';
@@ -269,7 +272,7 @@ export default function Home() {
       {showTopbar && (
         <div className="topbar">
           <span className="logo">ADAMAS</span>
-          {(screen === 'entry' || screen === 'lobby') && <span className="muted">{gameType === 'flip' ? 'UNO Flip' : gameType === 'spin' ? 'UNO Spin' : 'UNO No Mercy'}</span>}
+          {(screen === 'entry' || screen === 'lobby') && <span className="muted">{gameType === 'flip' ? 'UNO Flip' : gameType === 'spin' ? 'UNO Spin' : gameType === 'monopoly' ? 'Monopoly' : 'UNO No Mercy'}</span>}
           <div className="spacer" />
           {name && <span className="pill">▦ {name}</span>}
         </div>

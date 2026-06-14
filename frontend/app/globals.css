@@ -543,4 +543,25 @@ body { background-attachment: fixed; }
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 @keyframes spectBlink { 0%,92%,100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } }
+.monopoly-board { gap: 12px; }
+.mono-main { display: grid; grid-template-columns: 1.1fr .8fr 1.1fr; gap: 16px; padding: 8px 14px 18px; align-items: start; }
+@media (max-width: 900px) { .mono-main { grid-template-columns: 1fr; } }
+.mono-players, .mono-log { background: linear-gradient(180deg, var(--panel), var(--bg-2)); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow-soft); }
+.mono-player { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--border); margin-bottom: 8px; transition: box-shadow .25s, border-color .25s; }
+.mono-player.turn { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(124,92,255,.35), 0 0 18px rgba(124,92,255,.3); }
+.mono-player.is-offline { opacity: .6; }
+.mono-player-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mono-player-name { font-size: 15px; }
+.mono-player-pos { font-size: 13px; }
+.mono-money { color: var(--good); }
+.mono-center { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 14px; padding-top: 14px; }
+.dice-row { display: flex; gap: 14px; }
+.die { width: 64px; height: 64px; border-radius: 14px; background: #fff; color: #11151d; font-size: 32px; font-weight: 900; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 22px rgba(0,0,0,.45), inset 0 -4px 0 rgba(0,0,0,.12); }
+.roll-btn { min-width: 180px; }
+.roll-btn:not(:disabled) { animation: spinBtnPulse 1.6s ease-in-out infinite; }
+.mono-log-list { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.mono-log-line { font-size: 13px; padding: 7px 10px; border-radius: 8px; background: var(--bg-2); border-left: 3px solid var(--accent); color: #cdd6e6; animation: rise .25s ease both; }
+
+/* keep the name pill clear of the fixed mute button */
+.topbar { padding-right: 64px; }
 /* EOF globals.css */
