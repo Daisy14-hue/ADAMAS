@@ -31,7 +31,11 @@ const DEFAULT_GRACE_MS = 60000; // reconnect grace window before a seat is remov
  * `playerId` in acks equals `pid` (the stable identity the client matches
  * against view.players[].id and lobby.hostId). It is kept for back-compat.
  */
-function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
+function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS, rateLimit = {} } = {}) {
+  // Per-socket token bucket for 'intent' spam protection (guard rail, not rules).
+  const RL_CAP = Number.isFinite(rateLimit.capacity) ? rateLimit.capacity : 200;
+  const RL_PER_SEC = Number.isFinite(rateLimit.perSecond) ? rateLimit.perSecond : 200;
+  const RL_REFILL_PER_MS = RL_PER_SEC / 1000;
   const app = express();
   app.get('/health', (_req, res) => res.json({ ok: true, service: 'adamas', ts: Date.now() }));
 
@@ -49,6 +53,17 @@ function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
       clearTimeout(t);
       graceTimers.delete(pid);
     }
+  };
+
+  const allowIntent = (socket) => {
+    const now = Date.now();
+    const rl = socket.data.rl || { tokens: RL_CAP, last: now };
+    rl.tokens = Math.min(RL_CAP, rl.tokens + (now - rl.last) * RL_REFILL_PER_MS);
+    rl.last = now;
+    if (rl.tokens < 1) { socket.data.rl = rl; return false; }
+    rl.tokens -= 1;
+    socket.data.rl = rl;
+    return true;
   };
 
   const broadcastLobby = (room) => {
@@ -112,8 +127,9 @@ function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
     };
 
     socket.on('createRoom', (data = {}, cb) => {
+      const d = data && typeof data === 'object' ? data : {};
       if (socket.data.roomCode) return ack(cb, { ok: false, error: 'ALREADY_IN_ROOM' });
-      const { room, player } = rooms.createRoom(data.name, socket.id, data.config || {}, data.gameType);
+      const { room, player } = rooms.createRoom(d.name, socket.id, d.config || {}, d.gameType);
       socket.join(room.code);
       socket.data.roomCode = room.code;
       socket.data.pid = player.pid;
@@ -122,8 +138,9 @@ function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
     });
 
     socket.on('joinRoom', (data = {}, cb) => {
+      const d = data && typeof data === 'object' ? data : {};
       if (socket.data.roomCode) return ack(cb, { ok: false, error: 'ALREADY_IN_ROOM' });
-      const { room, player, reconnected, error } = rooms.joinRoom(data.code, data.name, socket.id, data.pid);
+      const { room, player, reconnected, error } = rooms.joinRoom(d.code, d.name, socket.id, d.pid);
       if (error) return ack(cb, { ok: false, error });
       socket.join(room.code);
       socket.data.roomCode = room.code;
@@ -160,6 +177,7 @@ function createServer({ corsOrigin = '*', graceMs = DEFAULT_GRACE_MS } = {}) {
     });
 
     socket.on('intent', (intent = {}, cb) => {
+      if (!allowIntent(socket)) return ack(cb, { ok: false, error: 'RATE_LIMITED' });
       const { room, result, error } = rooms.applyIntent(socket.data.roomCode, socket.data.pid, intent);
       if (error) return ack(cb, { ok: false, error });
       if (!result.ok) return ack(cb, { ok: false, error: result.error });

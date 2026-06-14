@@ -39,6 +39,49 @@ function clampInt(v, min, max, fallback) {
   return Math.max(min, Math.min(max, n));
 }
 
+// ---- defensive guard rails (NOT game rules) ------------------------------
+const VALID_COLORS = new Set(['red', 'yellow', 'green', 'blue', 'pink', 'teal', 'orange', 'purple']);
+const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT']);
+const isShortStr = (v) => typeof v === 'string' && v.length > 0 && v.length <= 64;
+const isColorStr = (v) => typeof v === 'string' && VALID_COLORS.has(v);
+const isIdList = (v) => Array.isArray(v) && v.length <= 64 && v.every(isShortStr);
+
+/**
+ * Validate an intent is a well-formed object with a known `type` and correctly
+ * typed fields BEFORE it reaches an engine. GUARD RAIL only — semantic legality
+ * (turn order, card playability, wheel outcomes) stays the engine's job.
+ */
+function validateIntent(intent) {
+  if (!intent || typeof intent !== 'object' || Array.isArray(intent)) return false;
+  const t = intent.type;
+  if (typeof t !== 'string' || !KNOWN_INTENTS.has(t)) return false;
+  switch (t) {
+    case 'PLAY_CARD':
+      if (!isShortStr(intent.cardId)) return false;
+      if (intent.chosenColor !== undefined && !isColorStr(intent.chosenColor)) return false;
+      if (intent.rouletteColor !== undefined && !isColorStr(intent.rouletteColor)) return false;
+      return true;
+    case 'SPIN_CHOICE':
+      if (intent.cardId !== undefined && !isShortStr(intent.cardId)) return false;
+      if (intent.topCardId !== undefined && !isShortStr(intent.topCardId)) return false;
+      if (intent.color !== undefined && !isColorStr(intent.color)) return false;
+      if (intent.chosenColor !== undefined && !isColorStr(intent.chosenColor)) return false;
+      if (intent.number !== undefined && !(Number.isInteger(intent.number) && intent.number >= 0 && intent.number <= 9)) return false;
+      if (intent.keepIds !== undefined && !isIdList(intent.keepIds)) return false;
+      if (intent.discardIds !== undefined && !isIdList(intent.discardIds)) return false;
+      return true;
+    case 'DRAW':
+    case 'PASS':
+    case 'SAY_UNO':
+    case 'SPIN':
+    case 'RACE_TAP':
+    case 'RACE_TIMEOUT':
+      return true;
+    default:
+      return false;
+  }
+}
+
 class RoomManager {
   constructor() {
     /** @type {Map<string, Room>} */
@@ -63,16 +106,17 @@ class RoomManager {
   }
 
   createRoom(hostName, socketId, config = {}, gameType = 'noMercy') {
+    const cfg = config && typeof config === 'object' ? config : {};
     const code = this._newCode();
     const pid = randomUUID();
     const room = {
       code,
       hostId: pid, // host identity is a stable pid (survives reconnects)
-      gameType: GAME_TYPES.has(gameType) ? gameType : 'noMercy',
+      gameType: typeof gameType === 'string' && GAME_TYPES.has(gameType) ? gameType : 'noMercy',
       status: 'lobby', // 'lobby' | 'playing' | 'finished'
       config: {
-        eliminationLimit: clampInt(config.eliminationLimit, 2, 200, DEFAULT_CONFIG.eliminationLimit),
-        recycleThreshold: clampInt(config.recycleThreshold, 10, 200, DEFAULT_CONFIG.recycleThreshold),
+        eliminationLimit: clampInt(cfg.eliminationLimit, 2, 200, DEFAULT_CONFIG.eliminationLimit),
+        recycleThreshold: clampInt(cfg.recycleThreshold, 10, 200, DEFAULT_CONFIG.recycleThreshold),
       },
       players: [],
       engine: null,
@@ -89,11 +133,12 @@ class RoomManager {
    * - Otherwise a brand-new player joins (only allowed while in 'lobby').
    */
   joinRoom(code, name, socketId, pid) {
+    const safePid = pid != null ? String(pid) : undefined;
     const room = this.rooms.get(String(code || '').toUpperCase().trim());
     if (!room) return { error: 'ROOM_NOT_FOUND' };
 
-    if (pid) {
-      const existing = this._findByPid(room, pid);
+    if (safePid) {
+      const existing = this._findByPid(room, safePid);
       if (existing) {
         existing.socketId = socketId;
         existing.connected = true;
@@ -107,7 +152,7 @@ class RoomManager {
     if (room.status !== 'lobby') return { error: 'MATCH_ALREADY_STARTED' };
     if (room.players.length >= MAX_PLAYERS) return { error: 'ROOM_FULL' };
     const player = this._addPlayer(room, name, socketId, randomUUID());
-    return { room, player, reconnected: false };
+    return { room, player, reconnected: false };  // (safePid was absent/unknown)
   }
 
   _addPlayer(room, name, socketId, pid) {
@@ -170,8 +215,19 @@ class RoomManager {
     const room = this.rooms.get(code);
     if (!room) return { error: 'ROOM_NOT_FOUND' };
     if (room.status !== 'playing' || !room.engine) return { error: 'GAME_NOT_ACTIVE' };
-    const res = room.engine.applyIntent(pid, intent);
-    if (res.ok && room.engine.state.status === 'finished') room.status = 'finished';
+    // Guard rail: reject malformed intents before they ever reach the engine.
+    if (!validateIntent(intent)) return { error: 'BAD_INTENT' };
+    let res;
+    try {
+      res = room.engine.applyIntent(pid, intent);
+    } catch (err) {
+      // A bug or unexpected state must NOT crash the room — degrade gracefully.
+      // eslint-disable-next-line no-console
+      console.error('[ADAMAS] engine.applyIntent threw for room', code, '-', err && err.stack ? err.stack : err);
+      return { error: 'ENGINE_ERROR' };
+    }
+    if (!res || typeof res !== 'object') return { error: 'ENGINE_ERROR' };
+    if (res.ok && room.engine.state && room.engine.state.status === 'finished') room.status = 'finished';
     return { room, result: res };
   }
 
@@ -249,5 +305,4 @@ class RoomManager {
     return view;
   }
 }
-
-module.exports = { RoomManager, sanitizeName, clampInt, MIN_PLAYERS, MAX_PLAYERS };
+module.exports = { RoomManager, sanitizeName, clampInt, validateIntent, MIN_PLAYERS, MAX_PLAYERS };
