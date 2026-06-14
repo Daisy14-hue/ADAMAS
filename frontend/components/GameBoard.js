@@ -12,6 +12,7 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const stack = view.drawStack || { active: false, total: 0 };
   const side = view.side; // 'light' | 'dark' for Flip; undefined for No Mercy
   const palette = side === 'dark' ? ['pink', 'teal', 'orange', 'purple'] : ['red', 'yellow', 'green', 'blue'];
+  const amSpectator = me.eliminated === true; // eliminated → watch-only spectator mode
 
   const [picker, setPicker] = useState(null); // { mode:'wild'|'roulette', card }
   const [shuffling, setShuffling] = useState(false);
@@ -133,41 +134,54 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
         )}
       </div>
 
-      {/* my hand + controls */}
-      <div className="hand-wrap">
-        <div className="controls">
-          {view.mustSpin && (
-            <button className="btn primary spin-btn" onClick={() => onIntent({ type: 'SPIN' })} title="Forced — spin the wheel">
-              🎡 Spin the Wheel
-            </button>
-          )}
-          <button className="btn" disabled={!myTurn || view.mustSpin} onClick={doDraw}>
-            {stack.active ? `Take penalty (+${stack.total})` : 'Draw card'}
-          </button>
-          {view.canPass && (
-            <button className="btn primary" onClick={() => onIntent({ type: 'PASS' })} title="Keep the drawn card and end your turn">
-              Pass ↪
-            </button>
-          )}
-          <button className={`btn ${me.handCount <= 2 ? 'accent2' : 'ghost'}`} onClick={sayUno} disabled={view.status !== 'playing'}>
-            Say “UNO!”
-          </button>
+      {/* my hand + controls — hidden entirely once eliminated (spectator) */}
+      {amSpectator ? (
+        <div className="hand-wrap spectator-wrap">
+          <div className="spectator-banner">
+            <span className="spectator-eye">👀</span>
+            <div>
+              <div className="spectator-title">You&apos;re out — spectating</div>
+              <div className="muted">You can watch the rest of the match unfold.</div>
+            </div>
+            <button className="btn primary" onClick={onLeave}>Leave to hub</button>
+          </div>
         </div>
-        <div className="hand">
-          {me.hand && me.hand.map((card) => {
-            const playable = myTurn && isPlayable(card, view);
-            return (
-              <div key={card.id} className={`card-slot ${playable ? 'playable' : 'unplayable'}`}>
-                <Card card={card} onClick={() => playCard(card)} />
-              </div>
-            );
-          })}
-          {(!me.hand || me.hand.length === 0) && !finished && <span className="muted">No cards — you&apos;re out or about to win.</span>}
+      ) : (
+        <div className="hand-wrap">
+          <div className="controls">
+            {view.mustSpin && (
+              <button className="btn primary spin-btn" onClick={() => onIntent({ type: 'SPIN' })} title="Forced — spin the wheel">
+                🎡 Spin the Wheel
+              </button>
+            )}
+            <button className="btn" disabled={!myTurn || view.mustSpin} onClick={doDraw}>
+              {stack.active ? `Take penalty (+${stack.total})` : 'Draw card'}
+            </button>
+            {view.canPass && (
+              <button className="btn primary" onClick={() => onIntent({ type: 'PASS' })} title="Keep the drawn card and end your turn">
+                Pass ↪
+              </button>
+            )}
+            <button className={`btn ${me.handCount <= 2 ? 'accent2' : 'ghost'}`} onClick={sayUno} disabled={view.status !== 'playing'}>
+              Say “UNO!”
+            </button>
+          </div>
+          <div className="hand">
+            {me.hand && me.hand.map((card) => {
+              const playable = myTurn && isPlayable(card, view);
+              return (
+                <div key={card.id} className={`card-slot ${playable ? 'playable' : 'unplayable'}`}>
+                  <Card card={card} onClick={() => playCard(card)} />
+                </div>
+              );
+            })}
+            {(!me.hand || me.hand.length === 0) && !finished && <span className="muted">No cards — you&apos;re out or about to win.</span>}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* color picker */}
-      {picker && (
+      {picker && !amSpectator && (
         <div className="overlay" onClick={() => setPicker(null)}>
           <div className="picker" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>{picker.mode === 'roulette' ? 'Call a color (roulette)' : 'Pick a color'}</h3>

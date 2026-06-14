@@ -529,4 +529,18 @@ body { background-attachment: fixed; }
 }
 .mute-toggle:hover { transform: translateY(-1px) scale(1.05); background: rgba(35,44,62,.9); box-shadow: 0 0 18px rgba(124,92,255,.4); }
 .mute-toggle:active { transform: scale(.92); }
+.spectator-wrap { min-height: 120px; display: flex; align-items: center; justify-content: center; padding: 10px; }
+.spectator-banner {
+  display: flex; align-items: center; gap: 16px; padding: 16px 22px; border-radius: 16px;
+  background: linear-gradient(180deg, rgba(124,92,255,.16), rgba(0,212,255,.08));
+  border: 1px solid rgba(124,92,255,.4); box-shadow: 0 0 28px rgba(124,92,255,.25);
+  animation: rise .35s ease both; max-width: 92vw;
+}
+.spectator-eye { font-size: 34px; animation: spectBlink 3.2s ease-in-out infinite; }
+.spectator-title {
+  font-size: 20px; font-weight: 900; line-height: 1.1;
+  background: linear-gradient(120deg, #fff, #b9a6ff, #00d4ff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+@keyframes spectBlink { 0%,92%,100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } }
 /* EOF globals.css */
