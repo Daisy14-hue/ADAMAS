@@ -521,7 +521,7 @@ body { background-attachment: fixed; }
 }
 
 .mute-toggle {
-  position: fixed; top: 12px; right: 14px; z-index: 95;
+  position: fixed; bottom: 16px; right: 16px; z-index: 95;
   width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
   border: 1px solid var(--border); background: rgba(22,27,38,.8); backdrop-filter: blur(6px);
   color: var(--text); font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center;
@@ -561,7 +561,18 @@ body { background-attachment: fixed; }
 .roll-btn:not(:disabled) { animation: spinBtnPulse 1.6s ease-in-out infinite; }
 .mono-log-list { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
 .mono-log-line { font-size: 13px; padding: 7px 10px; border-radius: 8px; background: var(--bg-2); border-left: 3px solid var(--accent); color: #cdd6e6; animation: rise .25s ease both; }
-
-/* keep the name pill clear of the fixed mute button */
-.topbar { padding-right: 64px; }
+.mono-money-neg { color: var(--danger); }
+.prop-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.prop-chip {
+  font-size: 11px; font-weight: 700; color: #fff; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.25); text-shadow: 0 1px 1px rgba(0,0,0,.5);
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.buy-prompt {
+  margin-top: 6px; padding: 14px 16px; border-radius: 14px; text-align: center;
+  background: linear-gradient(180deg, rgba(47,208,122,.14), rgba(0,212,255,.06));
+  border: 1px solid rgba(47,208,122,.45); box-shadow: 0 0 22px rgba(47,208,122,.25);
+  animation: rise .25s ease both;
+}
+.buy-title { margin-bottom: 12px; font-size: 15px; }
 /* EOF globals.css */

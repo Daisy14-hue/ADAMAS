@@ -80,7 +80,7 @@ export function Hub({ onPick, onLocked }) {
   return (
     <div className="page">
       <h2>Game Hub</h2>
-      <p className="muted" style={{ marginTop: -8 }}>Pick your poison. Plenty playable, more landing soon.</p>
+      <p className="muted" style={{ marginTop: -8 }}>Pick your poison. One playable, the rest landing soon.</p>
 
       <h3 style={{ marginTop: 24 }}>UNO</h3>
       <div className="hub-grid">
