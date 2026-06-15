@@ -42,7 +42,7 @@ function clampInt(v, min, max, fallback) {
 
 // ---- defensive guard rails (NOT game rules) ------------------------------
 const VALID_COLORS = new Set(['red', 'yellow', 'green', 'blue', 'pink', 'teal', 'orange', 'purple']);
-const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY']);
+const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD']);
 const isShortStr = (v) => typeof v === 'string' && v.length > 0 && v.length <= 64;
 const isColorStr = (v) => typeof v === 'string' && VALID_COLORS.has(v);
 const isIdList = (v) => Array.isArray(v) && v.length <= 64 && v.every(isShortStr);
@@ -81,6 +81,8 @@ function validateIntent(intent) {
     case 'END_TURN':          // Monopoly
     case 'BUY_PROPERTY':      // Monopoly Phase 2
     case 'DECLINE_PROPERTY':  // Monopoly Phase 2
+    case 'JAIL_PAY':          // Monopoly Phase 3
+    case 'JAIL_USE_CARD':     // Monopoly Phase 3
       return true;
     default:
       return false;

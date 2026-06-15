@@ -521,7 +521,7 @@ body { background-attachment: fixed; }
 }
 
 .mute-toggle {
-  position: fixed; bottom: 16px; right: 16px; z-index: 95;
+  position: fixed; top: 12px; right: 14px; z-index: 95;
   width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
   border: 1px solid var(--border); background: rgba(22,27,38,.8); backdrop-filter: blur(6px);
   color: var(--text); font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center;
@@ -575,4 +575,18 @@ body { background-attachment: fixed; }
   animation: rise .25s ease both;
 }
 .buy-title { margin-bottom: 12px; font-size: 15px; }
+.drawn-card {
+  width: 100%; max-width: 280px; padding: 12px 14px; border-radius: 12px; text-align: center;
+  border: 1px solid var(--border); animation: gagPop .3s cubic-bezier(.2,.9,.3,1.4);
+}
+.drawn-card.chance { background: linear-gradient(180deg, rgba(245,185,20,.18), rgba(245,185,20,.05)); border-color: rgba(245,185,20,.5); }
+.drawn-card.community { background: linear-gradient(180deg, rgba(0,212,255,.16), rgba(0,212,255,.05)); border-color: rgba(0,212,255,.5); }
+.drawn-card-label { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.drawn-card-text { font-size: 14px; font-weight: 600; margin-top: 4px; }
+.jail-prompt {
+  margin-top: 6px; padding: 14px 16px; border-radius: 14px; text-align: center;
+  background: linear-gradient(180deg, rgba(255,77,94,.14), rgba(124,92,255,.06));
+  border: 1px solid rgba(255,77,94,.45); box-shadow: 0 0 22px rgba(255,77,94,.22);
+  animation: rise .25s ease both;
+}
 /* EOF globals.css */

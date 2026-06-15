@@ -58,6 +58,7 @@ export default function MonopolyBoard({ view, playerId, onIntent, onLeave }) {
                   {p.isYou && <span className="muted"> (you)</span>}
                   {p.isHost && <span className="pill tag-host" style={{ padding: '1px 6px', marginLeft: 6 }}>H</span>}
                   {p.inJail && <span className="pill" style={{ marginLeft: 6, borderColor: 'var(--danger)', color: 'var(--danger)' }}>🔒 Jail</span>}
+                  {p.jailCards > 0 && <span className="pill" style={{ marginLeft: 6 }}>🎟️ {p.jailCards}</span>}
                   {p.connected === false && <span className="conn-badge off" style={{ marginLeft: 6 }}>reconnecting…</span>}
                 </div>
                 <div className="muted mono-player-pos">
@@ -87,7 +88,25 @@ export default function MonopolyBoard({ view, playerId, onIntent, onLeave }) {
             {lr ? `Last roll: ${lr.d1} + ${lr.d2} = ${lr.total}` : 'No roll yet.'}
           </div>
 
-          {myBuy ? (
+          {view.lastCard && (
+            <div className={`drawn-card ${view.lastCard.deck}`}>
+              <div className="drawn-card-label">{view.lastCard.deck === 'chance' ? '❓ Chance' : '📦 Community Chest'}</div>
+              <div className="drawn-card-text">{view.lastCard.text}</div>
+            </div>
+          )}
+
+          {myTurn && view.jailOptions ? (
+            <div className="jail-prompt">
+              <div className="buy-title">You&apos;re in Jail 🔒</div>
+              <div className="row gap-12" style={{ justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button className="btn primary" onClick={() => act({ type: 'JAIL_PAY' })}>Pay $50</button>
+                {view.jailOptions.canUseCard && (
+                  <button className="btn accent2" onClick={() => act({ type: 'JAIL_USE_CARD' })}>Use Jail Card 🎟️</button>
+                )}
+                <button className="btn" onClick={() => act({ type: 'ROLL' })}>🎲 Roll for doubles</button>
+              </div>
+            </div>
+          ) : myBuy ? (
             <div className="buy-prompt">
               <div className="buy-title">You landed on <b>{pend.name}</b></div>
               <div className="row gap-12" style={{ justifyContent: 'center' }}>

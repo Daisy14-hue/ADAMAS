@@ -83,6 +83,47 @@ if (BOARD.length !== BOARD_SIZE) {
   throw new Error(`Monopoly board invariant violated: ${BOARD.length} spaces, expected ${BOARD_SIZE}.`);
 }
 
+
+// ----- Phase 3: Chance & Community Chest decks (full official effects) -----
+// Each card: { id, text, effect }. `effect.kind` is interpreted by the engine.
+const CHANCE_CARDS = [
+  { id: 'CH1', text: 'Advance to Go (Collect $200).', effect: { kind: 'moveTo', index: 0, passGo: true } },
+  { id: 'CH2', text: 'Advance to Illinois Avenue. If you pass Go, collect $200.', effect: { kind: 'moveTo', index: 24, passGo: true } },
+  { id: 'CH3', text: 'Advance to St. Charles Place. If you pass Go, collect $200.', effect: { kind: 'moveTo', index: 11, passGo: true } },
+  { id: 'CH4', text: 'Advance to the nearest Utility. If unowned you may buy it; if owned, throw dice and pay the owner 10× the amount thrown.', effect: { kind: 'moveToNearest', target: 'utility', payMultiplier: 10 } },
+  { id: 'CH5', text: 'Advance to the nearest Railroad. If owned, pay the owner twice the rental due.', effect: { kind: 'moveToNearest', target: 'railroad', payMultiplier: 2 } },
+  { id: 'CH6', text: 'Advance to the nearest Railroad. If owned, pay the owner twice the rental due.', effect: { kind: 'moveToNearest', target: 'railroad', payMultiplier: 2 } },
+  { id: 'CH7', text: 'Bank pays you dividend of $50.', effect: { kind: 'collect', amount: 50 } },
+  { id: 'CH8', text: 'Get Out of Jail Free.', effect: { kind: 'getOutOfJailFree' } },
+  { id: 'CH9', text: 'Go Back 3 Spaces.', effect: { kind: 'moveBy', steps: -3 } },
+  { id: 'CH10', text: 'Go to Jail. Do not pass Go, do not collect $200.', effect: { kind: 'goToJail' } },
+  { id: 'CH11', text: 'Make general repairs on all your property: $25 per house, $100 per hotel.', effect: { kind: 'repairs', perHouse: 25, perHotel: 100 } },
+  { id: 'CH12', text: 'Speeding fine $15.', effect: { kind: 'pay', amount: 15 } },
+  { id: 'CH13', text: 'Take a trip to Reading Railroad. If you pass Go, collect $200.', effect: { kind: 'moveTo', index: 5, passGo: true } },
+  { id: 'CH14', text: 'Advance to Boardwalk.', effect: { kind: 'moveTo', index: 39, passGo: false } },
+  { id: 'CH15', text: 'You have been elected Chairman of the Board. Pay each player $50.', effect: { kind: 'payEach', amount: 50 } },
+  { id: 'CH16', text: 'Your building loan matures. Collect $150.', effect: { kind: 'collect', amount: 150 } },
+];
+
+const COMMUNITY_CARDS = [
+  { id: 'CC1', text: 'Advance to Go (Collect $200).', effect: { kind: 'moveTo', index: 0, passGo: true } },
+  { id: 'CC2', text: 'Bank error in your favor. Collect $200.', effect: { kind: 'collect', amount: 200 } },
+  { id: 'CC3', text: "Doctor's fee. Pay $50.", effect: { kind: 'pay', amount: 50 } },
+  { id: 'CC4', text: 'From sale of stock you get $50.', effect: { kind: 'collect', amount: 50 } },
+  { id: 'CC5', text: 'Get Out of Jail Free.', effect: { kind: 'getOutOfJailFree' } },
+  { id: 'CC6', text: 'Go to Jail. Do not pass Go, do not collect $200.', effect: { kind: 'goToJail' } },
+  { id: 'CC7', text: 'Holiday fund matures. Collect $100.', effect: { kind: 'collect', amount: 100 } },
+  { id: 'CC8', text: 'Income tax refund. Collect $20.', effect: { kind: 'collect', amount: 20 } },
+  { id: 'CC9', text: 'It is your birthday. Collect $10 from every player.', effect: { kind: 'collectFromEach', amount: 10 } },
+  { id: 'CC10', text: 'Life insurance matures. Collect $100.', effect: { kind: 'collect', amount: 100 } },
+  { id: 'CC11', text: 'Pay hospital fees of $100.', effect: { kind: 'pay', amount: 100 } },
+  { id: 'CC12', text: 'Pay school fees of $50.', effect: { kind: 'pay', amount: 50 } },
+  { id: 'CC13', text: 'Receive $25 consultancy fee.', effect: { kind: 'collect', amount: 25 } },
+  { id: 'CC14', text: 'You are assessed for street repairs: $40 per house, $115 per hotel.', effect: { kind: 'repairs', perHouse: 40, perHotel: 115 } },
+  { id: 'CC15', text: 'You have won second prize in a beauty contest. Collect $10.', effect: { kind: 'collect', amount: 10 } },
+  { id: 'CC16', text: 'You inherit $100.', effect: { kind: 'collect', amount: 100 } },
+];
+
 const DEFAULT_CONFIG = {};
 
 module.exports = {
@@ -99,5 +140,7 @@ module.exports = {
   UTILITY_MULT,
   OWNABLE_TYPES,
   BOARD,
+  CHANCE_CARDS,
+  COMMUNITY_CARDS,
   DEFAULT_CONFIG,
 };

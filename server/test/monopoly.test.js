@@ -283,3 +283,166 @@ test('cannot ROLL again while a purchase decision is pending', () => {
   e.applyIntent('A', { type: 'ROLL' });
   assert.equal(e.applyIntent('A', { type: 'ROLL' }).error, 'MUST_RESOLVE_PURCHASE');
 });
+
+// ===== Phase 3: cards + tax + jail options =====
+
+const { CHANCE_CARDS, COMMUNITY_CARDS } = require('../src/engine/monopoly/constants');
+const cardById = (id) =>
+  ({ ...[...CHANCE_CARDS, ...COMMUNITY_CARDS].find((c) => c.id === id) });
+// Replace the top card of a deck in place (keeps deck length stable).
+const setChanceTop = (e, id) => { e.state.chanceDeck[0] = cardById(id); };
+const setCommunityTop = (e, id) => { e.state.communityDeck[0] = cardById(id); };
+// seeded PRNG so deck shuffles are reproducible in tests
+function seeded(seed = 1) {
+  let s = seed >>> 0;
+  return () => { s |= 0; s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+test('Income Tax charges $200 and Luxury Tax charges $100 (to the bank)', () => {
+  let e = makeEngine(); e.start();
+  P(e, 'A').position = 0; dice(e, [1, 3]); // → index 4 Income Tax
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').money, 1300);
+
+  e = makeEngine(); e.start();
+  P(e, 'A').position = 35; dice(e, [1, 2]); // → index 38 Luxury Tax
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').money, 1400);
+});
+
+test('decks are shuffled deterministically from the seeded rng', () => {
+  const a = new MonopolyEngine({ players: [{ id: 'A', name: 'A' }, { id: 'B', name: 'B' }], rng: seeded(42) });
+  const b = new MonopolyEngine({ players: [{ id: 'A', name: 'A' }, { id: 'B', name: 'B' }], rng: seeded(42) });
+  a.start(); b.start();
+  assert.deepEqual(a.state.chanceDeck.map((c) => c.id), b.state.chanceDeck.map((c) => c.id));
+  assert.deepEqual(a.state.communityDeck.map((c) => c.id), b.state.communityDeck.map((c) => c.id));
+  assert.equal(a.state.chanceDeck.length, 16);
+});
+
+test('a drawn (non-jail) card is applied and returns to the bottom of its deck', () => {
+  const e = makeEngine(); e.start();
+  setChanceTop(e, 'CH7'); // Bank pays dividend $50
+  P(e, 'A').position = 4; dice(e, [1, 2]); // → index 7 Chance
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').money, 1550);
+  assert.equal(e.state.chanceDeck.length, 16, 'deck size unchanged');
+  assert.equal(e.state.chanceDeck[e.state.chanceDeck.length - 1].id, 'CH7', 'card went to the bottom');
+  assert.equal(e.view('A').lastCard.deck, 'chance');
+});
+
+test('collect / pay cards adjust money', () => {
+  const e = makeEngine(); e.start();
+  setCommunityTop(e, 'CC2'); // collect $200
+  P(e, 'A').position = 14; dice(e, [1, 2]); // → 17 Community Chest
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').money, 1700);
+});
+
+test('collectFromEach takes from every other player', () => {
+  const e = makeEngine(['A', 'B', 'C']); e.start();
+  setCommunityTop(e, 'CC9'); // collect $10 from each
+  P(e, 'A').position = 14; dice(e, [1, 2]); // → 17 CC
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').money, 1500 + 20);
+  assert.equal(P(e, 'B').money, 1490);
+  assert.equal(P(e, 'C').money, 1490);
+});
+
+test('payEach pays every other player', () => {
+  const e = makeEngine(['A', 'B', 'C']); e.start();
+  setChanceTop(e, 'CH15'); // pay each player $50
+  P(e, 'A').position = 4; dice(e, [1, 2]); // → 7 Chance
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').money, 1500 - 100);
+  assert.equal(P(e, 'B').money, 1550);
+  assert.equal(P(e, 'C').money, 1550);
+});
+
+test('Go To Jail card sends the player to Jail (no pass-Go)', () => {
+  const e = makeEngine(); e.start();
+  setChanceTop(e, 'CH10');
+  P(e, 'A').position = 4; dice(e, [1, 2]); // → 7 Chance
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').inJail, true);
+  assert.equal(P(e, 'A').position, 10);
+  assert.equal(cur(e), 'B', 'turn ends');
+});
+
+test('moveTo Advance-to-Go collects $200 and lands there', () => {
+  const e = makeEngine(); e.start();
+  setChanceTop(e, 'CH1'); // Advance to Go
+  P(e, 'A').position = 4; dice(e, [1, 2]); // → 7 Chance
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').position, 0);
+  assert.equal(P(e, 'A').money, 1700);
+});
+
+test('moveTo onto an unowned property opens a purchase decision', () => {
+  const e = makeEngine(); e.start();
+  setChanceTop(e, 'CH3'); // Advance to St. Charles Place (index 11), unowned
+  P(e, 'A').position = 4; dice(e, [1, 2]); // → 7 Chance
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').position, 11);
+  assert.equal(e.view('A').pendingPurchase.spaceIndex, 11);
+});
+
+test('moveTo onto a property owned by another pays rent', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[24] = 'B'; // B owns Illinois Avenue (base rent 20)
+  setChanceTop(e, 'CH2'); // Advance to Illinois (24)
+  P(e, 'A').position = 19; dice(e, [1, 2]); // → 22 Chance
+  const bBefore = P(e, 'B').money;
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(P(e, 'A').position, 24);
+  assert.equal(1500 - P(e, 'A').money, 20);
+  assert.equal(P(e, 'B').money - bBefore, 20);
+});
+
+test('Get Out of Jail Free is held, then JAIL_USE_CARD frees the player', () => {
+  const e = makeEngine(); e.start();
+  setChanceTop(e, 'CH8'); // Get Out of Jail Free
+  P(e, 'A').position = 4; dice(e, [1, 2]); // → 7 Chance
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(e.view('A').players.find((p) => p.isYou).jailCards, 1);
+
+  // now jail A and use the card
+  Object.assign(P(e, 'A'), { inJail: true, position: 10, jailTurns: 0 });
+  e.state.current = 0;
+  dice(e, [6, 4]); // 10 → Free Parking (neutral, non-doubles, no card draw)
+  const r = e.applyIntent('A', { type: 'JAIL_USE_CARD' });
+  assert.ok(r.ok);
+  assert.equal(P(e, 'A').inJail, false);
+  assert.equal(e.view('A').players.find((p) => p.isYou).jailCards, 0);
+  assert.equal(P(e, 'A').position, 20); // 10 + 10 → Free Parking
+});
+
+test('JAIL_PAY deducts $50 and frees the player, then they move', () => {
+  const e = makeEngine(); e.start();
+  Object.assign(P(e, 'A'), { inJail: true, position: 10, jailTurns: 0, money: 1000 });
+  e.state.current = 0;
+  setCommunityTop(e, 'CC15'); // if they land on a CC space, a harmless +$10 (17 is CC)
+  dice(e, [6, 1]); // 7 → index 17 (Community Chest)
+  const r = e.applyIntent('A', { type: 'JAIL_PAY' });
+  assert.ok(r.ok);
+  assert.equal(P(e, 'A').inJail, false);
+  assert.equal(P(e, 'A').position, 17);
+  // 1000 - 50 jail + 10 CC (beauty contest) = 960
+  assert.equal(P(e, 'A').money, 960);
+});
+
+test('JAIL_USE_CARD without a card, or jail intents out of jail, are rejected', () => {
+  const e = makeEngine(); e.start();
+  Object.assign(P(e, 'A'), { inJail: true, position: 10 }); e.state.current = 0;
+  assert.equal(e.applyIntent('A', { type: 'JAIL_USE_CARD' }).error, 'NO_JAIL_CARD');
+  Object.assign(P(e, 'A'), { inJail: false, position: 0 });
+  assert.equal(e.applyIntent('A', { type: 'JAIL_PAY' }).error, 'NOT_IN_JAIL');
+});
+
+test('repair card charges $0 with no houses (formula ready for Phase 4)', () => {
+  const e = makeEngine(); e.start();
+  setChanceTop(e, 'CH11'); // repairs $25/house, $100/hotel
+  P(e, 'A').position = 4; dice(e, [1, 2]); // → 7 Chance
+  const before = P(e, 'A').money;
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(before - P(e, 'A').money, 0);
+});
