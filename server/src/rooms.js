@@ -42,7 +42,7 @@ function clampInt(v, min, max, fallback) {
 
 // ---- defensive guard rails (NOT game rules) ------------------------------
 const VALID_COLORS = new Set(['red', 'yellow', 'green', 'blue', 'pink', 'teal', 'orange', 'purple']);
-const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD']);
+const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD', 'BUILD_HOUSE', 'SELL_HOUSE']);
 const isShortStr = (v) => typeof v === 'string' && v.length > 0 && v.length <= 64;
 const isColorStr = (v) => typeof v === 'string' && VALID_COLORS.has(v);
 const isIdList = (v) => Array.isArray(v) && v.length <= 64 && v.every(isShortStr);
@@ -84,6 +84,9 @@ function validateIntent(intent) {
     case 'JAIL_PAY':          // Monopoly Phase 3
     case 'JAIL_USE_CARD':     // Monopoly Phase 3
       return true;
+    case 'BUILD_HOUSE':       // Monopoly Phase 4
+    case 'SELL_HOUSE':        // Monopoly Phase 4
+      return Number.isInteger(intent.spaceIndex) && intent.spaceIndex >= 0 && intent.spaceIndex <= 39;
     default:
       return false;
   }

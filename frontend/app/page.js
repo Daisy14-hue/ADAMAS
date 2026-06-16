@@ -25,6 +25,18 @@ const ERRORS = {
   ROULETTE_COLOR_REQUIRED: 'Call a color for the roulette.',
   NOTHING_TO_PASS: 'Nothing to pass — draw first.',
   CANNOT_PASS_DURING_STACK: 'You can’t pass a draw stack — stack, deflect, or take it.',
+  MUST_END_TURN: 'You’ve already rolled — build/sell, then End Turn.',
+  MUST_RESOLVE_PURCHASE: 'Resolve the property (Buy or Decline) first.',
+  MUST_ROLL: 'Roll the dice first.',
+  NOT_FULL_GROUP: 'You must own the whole color group to build.',
+  UNEVEN_BUILD: 'Build evenly — raise the lowest lots first.',
+  UNEVEN_SELL: 'Sell evenly — sell from the highest lots first.',
+  NOT_BUILDABLE: 'You can’t build there.',
+  NO_HOUSES_LEFT: 'The bank is out of houses.',
+  NO_HOTELS_LEFT: 'The bank is out of hotels.',
+  NO_HOUSES_FOR_DOWNGRADE: 'Bank lacks 4 houses to break that hotel.',
+  NOTHING_TO_SELL: 'Nothing to sell there.',
+  INSUFFICIENT_FUNDS: 'Not enough money to build that.',
 };
 
 // Cheeky one-liners for the "Coming Soon" gag (pick one at random).

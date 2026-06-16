@@ -589,4 +589,13 @@ body { background-attachment: fixed; }
   border: 1px solid rgba(255,77,94,.45); box-shadow: 0 0 22px rgba(255,77,94,.22);
   animation: rise .25s ease both;
 }
+.btn.small { padding: 6px 10px; font-size: 13px; border-radius: 9px; }
+.manage-panel {
+  margin-top: 12px; width: 100%; max-width: 340px; padding: 12px 14px; border-radius: 12px;
+  background: var(--bg-2); border: 1px solid var(--border);
+}
+.manage-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.manage-row:last-child { border-bottom: none; }
+.manage-name { font-size: 13px; font-weight: 600; }
+.group-dot { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.3); }
 /* EOF globals.css */

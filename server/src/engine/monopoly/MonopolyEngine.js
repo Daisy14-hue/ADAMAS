@@ -2,18 +2,24 @@
 
 const {
   START_MONEY, PASS_GO, JAIL_INDEX, JAIL_FEE, JAIL_MAX_TURNS, BOARD_SIZE, BOARD,
-  RAILROAD_RENTS, UTILITY_MULT, OWNABLE_TYPES, CHANCE_CARDS, COMMUNITY_CARDS, DEFAULT_CONFIG,
+  RAILROAD_RENTS, UTILITY_MULT, OWNABLE_TYPES, CHANCE_CARDS, COMMUNITY_CARDS,
+  BANK_HOUSES, BANK_HOTELS, DEFAULT_CONFIG,
 } = require('./constants');
 
 /**
- * MonopolyEngine — Phase 1 (board/movement/money/jail) + Phase 2 (buying + rent)
- * + Phase 3 (Chance/Community Chest cards, tax charging, full jail options).
- * Server-authoritative, in-memory; same interface as the UNO engines.
+ * MonopolyEngine — Phases 1-4. Server-authoritative, in-memory; same interface
+ * as the UNO engines.
+ *   P1 board/movement/money/jail · P2 buying + rent · P3 cards/tax/jail-options
+ *   P4 houses & hotels (even-build, limited bank supply, rent tiers, selling).
  *
- * Intents: ROLL, END_TURN, BUY_PROPERTY, DECLINE_PROPERTY, JAIL_PAY, JAIL_USE_CARD.
+ * Intents: ROLL, END_TURN, BUY_PROPERTY, DECLINE_PROPERTY, JAIL_PAY,
+ *          JAIL_USE_CARD, BUILD_HOUSE { spaceIndex }, SELL_HOUSE { spaceIndex }.
  *
- * Money MAY go negative (no bankruptcy yet). Houses/trading/mortgaging/auctions
- * and a win condition are LATER phases (repairs cards read 0 houses for now).
+ * TURN FLOW (P4): after a non-doubles roll resolves (no pending purchase, not
+ * jailed) the engine enters a MANAGEMENT window (`awaitingEnd`) instead of
+ * auto-advancing — the player may BUILD_HOUSE/SELL_HOUSE freely and then must
+ * END_TURN. Doubles still re-roll; going to jail ends the turn immediately.
+ * Building requires sufficient funds (cannot go negative); rent still can.
  */
 class MonopolyEngine {
   constructor({ players = [], config = {}, rng } = {}) {
@@ -29,19 +35,23 @@ class MonopolyEngine {
         inJail: false,
         jailTurns: 0,
         doublesCount: 0,
-        jailHeld: [], // [{ deck:'chance'|'community', card }] Get-Out-of-Jail-Free cards held
+        jailHeld: [],
         eliminated: false,
       })),
       owners: new Array(BOARD_SIZE).fill(null),
+      houses: new Array(BOARD_SIZE).fill(0), // per property (0-4)
+      hotels: new Array(BOARD_SIZE).fill(false), // per property
+      bank: { houses: BANK_HOUSES, hotels: BANK_HOTELS },
       chanceDeck: [],
       communityDeck: [],
       current: 0,
       status: 'lobby',
       winner: null,
       lastRoll: null,
-      lastCard: null, // { deck, text } for the UI
+      lastCard: null,
       pendingPurchase: null,
       pendingDoubles: false,
+      awaitingEnd: false, // management window: current player must END_TURN
       log: [],
       events: [],
     };
@@ -56,6 +66,9 @@ class MonopolyEngine {
       p.position = 0; p.money = START_MONEY; p.inJail = false; p.jailTurns = 0; p.doublesCount = 0; p.jailHeld = [];
     }
     s.owners = new Array(BOARD_SIZE).fill(null);
+    s.houses = new Array(BOARD_SIZE).fill(0);
+    s.hotels = new Array(BOARD_SIZE).fill(false);
+    s.bank = { houses: BANK_HOUSES, hotels: BANK_HOTELS };
     s.chanceDeck = this._shuffle(CHANCE_CARDS.map((c) => ({ ...c })));
     s.communityDeck = this._shuffle(COMMUNITY_CARDS.map((c) => ({ ...c })));
     s.current = 0;
@@ -65,6 +78,7 @@ class MonopolyEngine {
     s.lastCard = null;
     s.pendingPurchase = null;
     s.pendingDoubles = false;
+    s.awaitingEnd = false;
     this._log('MATCH_STARTED', `${s.players[s.current].name} goes first. Everyone starts at Go with $${START_MONEY}.`, { firstPlayer: s.players[s.current].id });
     return { ok: true, events: this._drain() };
   }
@@ -91,8 +105,11 @@ class MonopolyEngine {
       case 'DECLINE_PROPERTY': return this._handleDecline(idx);
       case 'JAIL_PAY': return this._handleJailPay(idx);
       case 'JAIL_USE_CARD': return this._handleJailCard(idx);
+      case 'BUILD_HOUSE': return this._handleBuild(idx, intent.spaceIndex);
+      case 'SELL_HOUSE': return this._handleSell(idx, intent.spaceIndex);
       case 'ROLL':
         if (s.pendingPurchase) return this._err('MUST_RESOLVE_PURCHASE');
+        if (s.awaitingEnd) return this._err('MUST_END_TURN');
         return this._handleRoll(idx);
       case 'END_TURN':
         if (s.pendingPurchase) return this._err('MUST_RESOLVE_PURCHASE');
@@ -107,7 +124,6 @@ class MonopolyEngine {
     return this.state.players[idx].inJail ? this._jailRoll(idx) : this._freeRoll(idx);
   }
 
-  // Normal (out-of-jail) roll: dice, doubles, 3-doubles→jail, move, resolve.
   _freeRoll(idx) {
     const s = this.state;
     const p = s.players[idx];
@@ -123,7 +139,7 @@ class MonopolyEngine {
       if (p.doublesCount >= 3) {
         this._sendToJail(idx);
         this._log('THREE_DOUBLES_JAIL', `${p.name} rolled three doubles and was sent to Jail!`, { player: p.id });
-        return this._afterResolve(idx, false);
+        return this._endTurnNow(idx);
       }
     } else {
       p.doublesCount = 0;
@@ -132,7 +148,6 @@ class MonopolyEngine {
     return this._postMove(idx, total, doubles);
   }
 
-  // In-jail roll: doubles releases (no bonus re-roll); 3rd failed attempt pays $50.
   _jailRoll(idx) {
     const s = this.state;
     const p = s.players[idx];
@@ -158,13 +173,11 @@ class MonopolyEngine {
       return this._postMove(idx, total, false);
     }
     this._log('STAYED_IN_JAIL', `${p.name} stayed in Jail (turn ${p.jailTurns}/${JAIL_MAX_TURNS}).`, { player: p.id, jailTurns: p.jailTurns });
-    return this._afterResolve(idx, false);
+    return this._endTurnNow(idx);
   }
 
-  // Phase 3 jail options:
   _handleJailPay(idx) {
-    const s = this.state;
-    const p = s.players[idx];
+    const p = this.state.players[idx];
     if (!p.inJail) return this._err('NOT_IN_JAIL');
     p.money -= JAIL_FEE;
     this._log('PAID_JAIL', `${p.name} paid $${JAIL_FEE} to leave Jail.`, { player: p.id, fee: JAIL_FEE });
@@ -173,12 +186,11 @@ class MonopolyEngine {
   }
 
   _handleJailCard(idx) {
-    const s = this.state;
-    const p = s.players[idx];
+    const p = this.state.players[idx];
     if (!p.inJail) return this._err('NOT_IN_JAIL');
     if (p.jailHeld.length === 0) return this._err('NO_JAIL_CARD');
     const held = p.jailHeld.pop();
-    this._deck(held.deck).push(held.card); // return Get-Out-of-Jail-Free to its deck bottom
+    this._deck(held.deck).push(held.card);
     this._log('USED_JAIL_CARD', `${p.name} used a Get Out of Jail Free card.`, { player: p.id });
     this._freeFromJail(idx);
     return this._freeRoll(idx);
@@ -189,26 +201,32 @@ class MonopolyEngine {
     p.inJail = false; p.jailTurns = 0; p.doublesCount = 0;
   }
 
-  // After a move: pause for a pending purchase; otherwise (incl. a card sending
-  // the player to jail) end/continue the turn appropriately.
   _postMove(idx, total, doublesForReroll) {
     const s = this.state;
-    if (s.players[idx].inJail) return this._afterResolve(idx, false); // dice landed on Go-To-Jail
+    if (s.players[idx].inJail) return this._endTurnNow(idx); // dice landed on Go-To-Jail
     const paused = this._resolveLanding(idx, total, 0);
     if (paused) {
       s.pendingDoubles = doublesForReroll;
       return { ok: true, events: this._drain() };
     }
-    if (s.players[idx].inJail) return this._afterResolve(idx, false); // a card sent them to jail
+    if (s.players[idx].inJail) return this._endTurnNow(idx); // a card sent them to jail
     return this._afterResolve(idx, doublesForReroll);
   }
 
+  // Doubles → roll again; otherwise open the management window (no auto-advance).
   _afterResolve(idx, rollAgain) {
     const s = this.state;
     if (rollAgain) {
       this._log('ROLL_AGAIN', `${s.players[idx].name} rolled doubles — roll again.`, { player: s.players[idx].id });
       return { ok: true, events: this._drain() };
     }
+    s.awaitingEnd = true;
+    this._log('AWAITING_END', `${s.players[idx].name} may build/sell, then end their turn.`, { player: s.players[idx].id });
+    return { ok: true, events: this._drain() };
+  }
+
+  // Turn ends immediately (jail cases) — no management window.
+  _endTurnNow(idx) {
     this._advanceTurn();
     return { ok: true, events: this._drain() };
   }
@@ -217,12 +235,94 @@ class MonopolyEngine {
     const s = this.state;
     const p = s.players[idx];
     if (p.inJail) return this._err('MUST_ROLL');
-    if (p.doublesCount > 0) return this._err('MUST_ROLL');
-    if (s.lastRoll && s.lastRoll.playerId === p.id) {
-      this._advanceTurn();
-      return { ok: true, events: this._drain() };
+    if (p.doublesCount > 0) return this._err('MUST_ROLL'); // owe a doubles re-roll
+    if (!s.awaitingEnd) return this._err('MUST_ROLL'); // must roll before ending
+    this._advanceTurn();
+    return { ok: true, events: this._drain() };
+  }
+
+  // ----- Phase 4: building / selling ---------------------------------------
+
+  _group(colorGroup) {
+    return BOARD.filter((sp) => sp.colorGroup === colorGroup).map((sp) => sp.index);
+  }
+
+  _levelOf(i) {
+    return this.state.hotels[i] ? 5 : this.state.houses[i];
+  }
+
+  _handleBuild(idx, spaceIndex) {
+    const s = this.state;
+    const p = s.players[idx];
+    if (s.pendingPurchase) return this._err('MUST_RESOLVE_PURCHASE');
+    if (!Number.isInteger(spaceIndex) || spaceIndex < 0 || spaceIndex >= BOARD_SIZE) return this._err('BAD_SPACE');
+    const space = BOARD[spaceIndex];
+    if (space.type !== 'property') return this._err('NOT_BUILDABLE');
+    if (s.owners[spaceIndex] !== p.id) return this._err('NOT_OWNER');
+    const group = this._group(space.colorGroup);
+    if (!group.every((i) => s.owners[i] === p.id)) return this._err('NOT_FULL_GROUP');
+
+    const level = this._levelOf(spaceIndex);
+    if (level >= 5) return this._err('ALREADY_MAX');
+    const minLevel = Math.min(...group.map((i) => this._levelOf(i)));
+    if (level !== minLevel) return this._err('UNEVEN_BUILD'); // must build on the lowest lot(s) first
+
+    const isHotel = level === 4; // 5th building → hotel
+    if (isHotel) {
+      if (s.bank.hotels < 1) return this._err('NO_HOTELS_LEFT');
+    } else if (s.bank.houses < 1) {
+      return this._err('NO_HOUSES_LEFT');
     }
-    return this._err('MUST_ROLL');
+    const cost = space.houseCost;
+    if (p.money < cost) return this._err('INSUFFICIENT_FUNDS'); // building cannot go negative
+
+    p.money -= cost;
+    if (isHotel) {
+      s.houses[spaceIndex] = 0;
+      s.hotels[spaceIndex] = true;
+      s.bank.houses += 4; // the 4 houses return to the bank
+      s.bank.hotels -= 1;
+      this._log('BUILT_HOTEL', `${p.name} built a hotel on ${space.name} for $${cost}.`, { player: p.id, index: spaceIndex, cost });
+    } else {
+      s.houses[spaceIndex] += 1;
+      s.bank.houses -= 1;
+      this._log('BUILT_HOUSE', `${p.name} built a house on ${space.name} (now ${s.houses[spaceIndex]}) for $${cost}.`, { player: p.id, index: spaceIndex, cost, houses: s.houses[spaceIndex] });
+    }
+    return { ok: true, events: this._drain() };
+  }
+
+  _handleSell(idx, spaceIndex) {
+    const s = this.state;
+    const p = s.players[idx];
+    if (s.pendingPurchase) return this._err('MUST_RESOLVE_PURCHASE');
+    if (!Number.isInteger(spaceIndex) || spaceIndex < 0 || spaceIndex >= BOARD_SIZE) return this._err('BAD_SPACE');
+    const space = BOARD[spaceIndex];
+    if (space.type !== 'property') return this._err('NOT_BUILDABLE');
+    if (s.owners[spaceIndex] !== p.id) return this._err('NOT_OWNER');
+    const group = this._group(space.colorGroup);
+
+    const level = this._levelOf(spaceIndex);
+    if (level <= 0) return this._err('NOTHING_TO_SELL');
+    const maxLevel = Math.max(...group.map((i) => this._levelOf(i)));
+    if (level !== maxLevel) return this._err('UNEVEN_SELL'); // must sell from the highest lot(s) first
+
+    const refund = Math.floor(space.houseCost / 2);
+    if (s.hotels[spaceIndex]) {
+      // Selling a hotel converts it to 4 houses on the lot, drawing 4 from the bank.
+      if (s.bank.houses < 4) return this._err('NO_HOUSES_FOR_DOWNGRADE');
+      s.hotels[spaceIndex] = false;
+      s.houses[spaceIndex] = 4;
+      s.bank.houses -= 4;
+      s.bank.hotels += 1;
+      p.money += refund;
+      this._log('SOLD_HOTEL', `${p.name} sold the hotel on ${space.name} for $${refund} (now 4 houses).`, { player: p.id, index: spaceIndex, refund });
+    } else {
+      s.houses[spaceIndex] -= 1;
+      s.bank.houses += 1;
+      p.money += refund;
+      this._log('SOLD_HOUSE', `${p.name} sold a house on ${space.name} for $${refund} (now ${s.houses[spaceIndex]}).`, { player: p.id, index: spaceIndex, refund, houses: s.houses[spaceIndex] });
+    }
+    return { ok: true, events: this._drain() };
   }
 
   // ----- landing resolution (tax / cards / ownable) ------------------------
@@ -246,7 +346,7 @@ class MonopolyEngine {
       case 'communityChest':
         return this._drawAndApply(idx, 'community', total, depth);
       default:
-        return false; // go / jail (just visiting) / freeParking — nothing
+        return false;
     }
   }
 
@@ -289,9 +389,13 @@ class MonopolyEngine {
       const count = s.owners.filter((o, i) => o === owner && BOARD[i].type === 'utility').length;
       return total * (UTILITY_MULT[count] || 4);
     }
+    // property rent tiers (Phase 4)
+    if (s.hotels[index]) return space.rentTable[5];
+    if (s.houses[index] > 0) return space.rentTable[s.houses[index]];
+    // 0 houses: base rent, doubled for a full unbuilt color group (Phase 2 rule)
     let rent = space.rentTable[0];
-    const groupIdx = BOARD.filter((sp) => sp.colorGroup === space.colorGroup).map((sp) => sp.index);
-    if (groupIdx.every((i) => s.owners[i] === owner)) rent *= 2;
+    const group = this._group(space.colorGroup);
+    if (group.every((i) => s.owners[i] === owner)) rent *= 2;
     return rent;
   }
 
@@ -312,8 +416,6 @@ class MonopolyEngine {
     const card = deck.shift();
     s.lastCard = { deck: deckName, text: card.text };
     this._log('CARD_DRAWN', `${p.name} drew ${deckName === 'chance' ? 'Chance' : 'Community Chest'}: “${card.text}”`, { player: p.id, deck: deckName, cardId: card.id, text: card.text });
-    // Held cards (Get Out of Jail Free) stay with the player; everything else
-    // returns to the bottom of its deck.
     if (card.effect.kind !== 'getOutOfJailFree') deck.push(card);
     return this._applyEffect(idx, card.effect, deckName, card, total, depth);
   }
@@ -332,20 +434,14 @@ class MonopolyEngine {
         return false;
       case 'collectFromEach': {
         let got = 0;
-        for (const other of s.players) {
-          if (other.id === p.id) continue;
-          other.money -= eff.amount; got += eff.amount;
-        }
+        for (const other of s.players) { if (other.id === p.id) continue; other.money -= eff.amount; got += eff.amount; }
         p.money += got;
         this._log('CARD_COLLECT_EACH', `${p.name} collected $${eff.amount} from each player ($${got} total).`, { player: p.id, amount: eff.amount, total: got });
         return false;
       }
       case 'payEach': {
         let paid = 0;
-        for (const other of s.players) {
-          if (other.id === p.id) continue;
-          other.money += eff.amount; paid += eff.amount;
-        }
+        for (const other of s.players) { if (other.id === p.id) continue; other.money += eff.amount; paid += eff.amount; }
         p.money -= paid;
         this._log('CARD_PAY_EACH', `${p.name} paid $${eff.amount} to each player ($${paid} total).`, { player: p.id, amount: eff.amount, total: paid });
         return false;
@@ -377,8 +473,7 @@ class MonopolyEngine {
   }
 
   _doMoveTo(idx, to, passGo, total, depth) {
-    const s = this.state;
-    const p = s.players[idx];
+    const p = this.state.players[idx];
     const from = p.position;
     p.position = to;
     if (passGo && to < from) { p.money += PASS_GO; this._log('PASSED_GO', `${p.name} passed Go (+$${PASS_GO}).`, { player: p.id, amount: PASS_GO }); }
@@ -387,8 +482,7 @@ class MonopolyEngine {
   }
 
   _doMoveBy(idx, steps, total, depth) {
-    const s = this.state;
-    const p = s.players[idx];
+    const p = this.state.players[idx];
     const from = p.position;
     const raw = from + steps;
     p.position = ((raw % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
@@ -421,31 +515,29 @@ class MonopolyEngine {
     }
     let rent;
     if (target === 'utility') {
-      const throwTotal = this._rollDie() + this._rollDie(); // official: throw dice, pay 10× the throw
+      const throwTotal = this._rollDie() + this._rollDie();
       rent = payMultiplier * throwTotal;
       this._log('UTILITY_THROW', `${p.name} threw ${throwTotal} for utility rent.`, { player: p.id, throwTotal });
     } else {
-      rent = payMultiplier * this._railroadRent(owner); // twice the normal railroad rent
+      rent = payMultiplier * this._railroadRent(owner);
     }
     this._transferRent(idx, owner, rent, BOARD[pos].name, pos);
     return false;
   }
 
   _countBuildings(pid) {
-    // Phase 4 will populate per-space building counts; reads 0 for now so the
-    // repair formula already works without houses/hotels yet existing.
     const s = this.state;
     let houses = 0;
     let hotels = 0;
     s.owners.forEach((o, i) => {
       if (o !== pid) return;
-      houses += (s.houses && s.houses[i]) || 0;
-      hotels += (s.hotels && s.hotels[i]) || 0;
+      if (s.hotels[i]) hotels += 1; // a hotel counts as a hotel, not 4 houses
+      else houses += s.houses[i];
     });
     return { houses, hotels };
   }
 
-  // ----- Phase 2: buy / decline --------------------------------------------
+  // ----- buy / decline -----------------------------------------------------
 
   _handleBuy(idx) {
     const s = this.state;
@@ -503,6 +595,7 @@ class MonopolyEngine {
   _advanceTurn() {
     const s = this.state;
     s.players[s.current].doublesCount = 0;
+    s.awaitingEnd = false;
     s.current = (s.current + 1) % s.players.length;
     this._log('TURN_CHANGED', `It's ${s.players[s.current].name}'s turn.`, { player: s.players[s.current].id });
   }
@@ -538,8 +631,15 @@ class MonopolyEngine {
       currentPlayerId: cur ? cur.id : null,
       lastRoll: s.lastRoll ? { d1: s.lastRoll.d1, d2: s.lastRoll.d2, total: s.lastRoll.total } : null,
       lastCard: s.lastCard ? { ...s.lastCard } : null,
-      board: BOARD.map((sp) => ({ ...sp, ownerId: OWNABLE_TYPES.has(sp.type) ? s.owners[sp.index] : null })),
+      board: BOARD.map((sp) => ({
+        ...sp,
+        ownerId: OWNABLE_TYPES.has(sp.type) ? s.owners[sp.index] : null,
+        houses: sp.type === 'property' ? s.houses[sp.index] : 0,
+        hotel: sp.type === 'property' ? !!s.hotels[sp.index] : false,
+      })),
+      bank: { ...s.bank },
       pendingPurchase: s.pendingPurchase ? { ...s.pendingPurchase } : null,
+      awaitingEnd: s.awaitingEnd,
       jailOptions,
       config: { ...s.config },
       log: s.log.slice(-30),

@@ -3,10 +3,11 @@
 import { playClick } from '@/lib/sound';
 
 /**
- * Monopoly — Phase 1 + Phase 2 screen (simple text/stat UI; graphical board is a
- * later phase). Shows each player's money, current space, and OWNED properties;
- * whose turn it is; a ROLL button — or a Buy/Decline prompt when you've landed on
- * an unowned ownable space; the last dice; and an event log (buys + rent included).
+ * Monopoly — Phases 1-4 screen (simple text/stat UI; graphical board is Phase 6).
+ * Shows money, positions, OWNED properties with houses/hotels, bank building
+ * supply, whose turn it is, the dice, the drawn card, jail options, a Build/Sell
+ * management panel for your complete monopolies, and an explicit End Turn button
+ * (the Phase-4 management window). Money/positions/ownership are public.
  */
 const MONO_COLORS = {
   brown: '#8b5a2b', lightBlue: '#8fd3f0', pink: '#d93a96', orange: '#e8893a',
@@ -15,11 +16,16 @@ const MONO_COLORS = {
 function chipStyle(space) {
   if (space.type === 'property') return { background: MONO_COLORS[space.colorGroup] || '#666' };
   if (space.type === 'railroad') return { background: '#2a3344' };
-  return { background: '#555' }; // utility
+  return { background: '#555' };
 }
 function chipIcon(space) {
   if (space.type === 'railroad') return '🚂 ';
   if (space.type === 'utility') return '💡 ';
+  return '';
+}
+function buildIndicator(space) {
+  if (space.hotel) return ' 🏨';
+  if (space.houses > 0) return ` 🏠×${space.houses}`;
   return '';
 }
 
@@ -28,17 +34,27 @@ export default function MonopolyBoard({ view, playerId, onIntent, onLeave }) {
   const myTurn = view.currentPlayerId === playerId && view.status === 'playing';
   const pend = view.pendingPurchase;
   const myBuy = myTurn && pend;
+  const inJailPrompt = myTurn && view.jailOptions;
   const spaceName = (pos) => (board[pos] ? board[pos].name : `#${pos}`);
   const currentName = (view.players.find((p) => p.id === view.currentPlayerId) || {}).name || '—';
   const lr = view.lastRoll;
+  const bank = view.bank || { houses: 0, hotels: 0 };
 
   const act = (intent) => { playClick(); onIntent(intent); };
+
+  // My complete monopolies (every lot in the group owned by me) → buildable.
+  const ownsWholeGroup = (sp) =>
+    sp.type === 'property' &&
+    board.filter((b) => b.colorGroup === sp.colorGroup).every((b) => b.ownerId === playerId);
+  const myManageable = board.filter(ownsWholeGroup);
+  const canManage = myTurn && !pend && !inJailPrompt && myManageable.length > 0;
 
   return (
     <div className="board monopoly-board">
       <div className="board-top">
         <button className="btn ghost" onClick={onLeave}>← Leave</button>
-        <span className="pill">🎩 Monopoly · Phase 2</span>
+        <span className="pill">🎩 Monopoly · Phase 4</span>
+        <span className="pill" title="Bank building supply">🏦 🏠 {bank.houses} · 🏨 {bank.hotels}</span>
         <div className="spacer" />
         <span className="turn-banner">
           {myTurn ? <span className="your-turn">● Your turn</span> : <>Turn: <b>{currentName}</b></>}
@@ -68,7 +84,7 @@ export default function MonopolyBoard({ view, playerId, onIntent, onLeave }) {
                   <div className="prop-chips">
                     {p.properties.map((i) => (
                       <span key={i} className="prop-chip" style={chipStyle(board[i])} title={board[i].name}>
-                        {chipIcon(board[i])}{board[i].name}
+                        {chipIcon(board[i])}{board[i].name}{buildIndicator(board[i])}
                       </span>
                     ))}
                   </div>
@@ -78,7 +94,7 @@ export default function MonopolyBoard({ view, playerId, onIntent, onLeave }) {
           ))}
         </div>
 
-        {/* dice + controls (ROLL, or Buy/Decline on a pending purchase) */}
+        {/* dice + controls */}
         <div className="mono-center">
           <div className="dice-row">
             <div className="die">{lr ? lr.d1 : '—'}</div>
@@ -95,7 +111,7 @@ export default function MonopolyBoard({ view, playerId, onIntent, onLeave }) {
             </div>
           )}
 
-          {myTurn && view.jailOptions ? (
+          {inJailPrompt ? (
             <div className="jail-prompt">
               <div className="buy-title">You&apos;re in Jail 🔒</div>
               <div className="row gap-12" style={{ justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -110,18 +126,16 @@ export default function MonopolyBoard({ view, playerId, onIntent, onLeave }) {
             <div className="buy-prompt">
               <div className="buy-title">You landed on <b>{pend.name}</b></div>
               <div className="row gap-12" style={{ justifyContent: 'center' }}>
-                <button className="btn primary big" onClick={() => act({ type: 'BUY_PROPERTY' })}>
-                  Buy · ${pend.price}
-                </button>
-                <button className="btn" onClick={() => act({ type: 'DECLINE_PROPERTY' })}>
-                  Decline
-                </button>
+                <button className="btn primary big" onClick={() => act({ type: 'BUY_PROPERTY' })}>Buy · ${pend.price}</button>
+                <button className="btn" onClick={() => act({ type: 'DECLINE_PROPERTY' })}>Decline</button>
               </div>
             </div>
+          ) : myTurn && view.awaitingEnd ? (
+            <button className="btn primary big" onClick={() => act({ type: 'END_TURN' })}>End Turn ➡</button>
           ) : (
             <button
               className="btn primary big roll-btn"
-              disabled={!myTurn || !!pend}
+              disabled={!myTurn}
               onClick={() => act({ type: 'ROLL' })}
               title={myTurn ? 'Roll the dice' : `Waiting for ${currentName}`}
             >
@@ -130,6 +144,23 @@ export default function MonopolyBoard({ view, playerId, onIntent, onLeave }) {
           )}
           {!myTurn && pend && (
             <div className="muted" style={{ marginTop: 8 }}>{currentName} is deciding on {pend.name}…</div>
+          )}
+
+          {/* Build / Sell management panel (your complete monopolies) */}
+          {canManage && (
+            <div className="manage-panel">
+              <h4 style={{ margin: '4px 0 8px' }}>Build / Sell</h4>
+              {myManageable.map((sp) => (
+                <div className="manage-row" key={sp.index}>
+                  <span className="group-dot" style={{ background: MONO_COLORS[sp.colorGroup] }} />
+                  <span className="manage-name">{sp.name}</span>
+                  <span className="muted">{sp.hotel ? '🏨' : `🏠×${sp.houses}`}</span>
+                  <div className="spacer" />
+                  <button className="btn small" onClick={() => act({ type: 'BUILD_HOUSE', spaceIndex: sp.index })}>Build ${sp.houseCost}</button>
+                  <button className="btn small ghost" onClick={() => act({ type: 'SELL_HOUSE', spaceIndex: sp.index })}>Sell</button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 

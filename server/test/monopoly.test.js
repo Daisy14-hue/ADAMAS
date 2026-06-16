@@ -53,7 +53,8 @@ test('a roll moves the player by the dice total and auto-passes the turn', () =>
   assert.ok(e.applyIntent('A', { type: 'ROLL' }).ok);
   assert.equal(P(e, 'A').position, 4);
   assert.deepEqual(e.view('A').lastRoll, { d1: 1, d2: 3, total: 4 });
-  assert.equal(cur(e), 'B', 'non-doubles landing on a non-ownable space → turn passes');
+  assert.ok(e.applyIntent('A', { type: 'END_TURN' }).ok); // Phase 4 management window
+  assert.equal(cur(e), 'B', 'after End Turn, a non-doubles turn passes');
 });
 
 test('money & position are public — view shows every player', () => {
@@ -94,8 +95,9 @@ test('doubles lets the same player roll again', () => {
   assert.equal(cur(e), 'A', 'still A after doubles');
   assert.equal(P(e, 'A').position, 4);
   e.applyIntent('A', { type: 'ROLL' });
-  assert.equal(cur(e), 'B', 'second (non-doubles) roll passes the turn');
   assert.equal(P(e, 'A').position, 10); // 4 + 6
+  assert.ok(e.applyIntent('A', { type: 'END_TURN' }).ok);
+  assert.equal(cur(e), 'B', 'second (non-doubles) roll then End Turn passes the turn');
 });
 
 test('three doubles in one turn sends the player straight to Jail (no move on the 3rd)', () => {
@@ -136,7 +138,8 @@ test('jail: doubles releases immediately and moves by the roll', () => {
   assert.equal(a.inJail, false);
   assert.equal(a.position, 20); // 10 + 10
   assert.equal(a.money, 1500, 'no fee when leaving via doubles');
-  assert.equal(cur(e), 'B', 'no bonus re-roll from a jail exit');
+  assert.ok(e.applyIntent('A', { type: 'END_TURN' }).ok);
+  assert.equal(cur(e), 'B', 'no bonus re-roll from a jail exit (End Turn passes)');
 });
 
 test('jail: after 3 failed turns the player pays $50 and gets out', () => {
@@ -182,7 +185,8 @@ test('buying deducts the price and sets public ownership', () => {
   const v = e.view('A');
   assert.deepEqual(v.players.find((p) => p.id === 'A').properties, [3]);
   assert.equal(v.board[3].ownerId, 'A');
-  assert.equal(cur(e), 'B', 'turn passes after the purchase');
+  assert.ok(e.applyIntent('A', { type: 'END_TURN' }).ok);
+  assert.equal(cur(e), 'B', 'after buying and ending the turn → passes');
 });
 
 test('landing on your OWN property does nothing', () => {
@@ -227,6 +231,7 @@ test('railroad rent scales 25/50/100/200 with the number owned', () => {
   const rentOnReading = () => {
     Object.assign(P(e, 'B'), { position: 2 });
     e.state.current = 1;
+    e.state.awaitingEnd = false; // reset Phase-4 management window for the focused harness
     const before = P(e, 'B').money;
     dice(e, [1, 2]); // 2 + 3 → index 5 (Reading Railroad)
     e.applyIntent('B', { type: 'ROLL' });
@@ -244,6 +249,7 @@ test('utility rent = dice total ×4 (one) or ×10 (both)', () => {
   const rentOnElectric = () => {
     Object.assign(P(e, 'B'), { position: 9 });
     e.state.current = 1;
+    e.state.awaitingEnd = false; // reset Phase-4 management window for the focused harness
     const before = P(e, 'B').money;
     dice(e, [1, 2]); // 1 + 2 = 3 → index 12 (Electric), dice total 3
     e.applyIntent('B', { type: 'ROLL' });
@@ -262,6 +268,7 @@ test('declining leaves the property unowned', () => {
   assert.ok(e.applyIntent('A', { type: 'DECLINE_PROPERTY' }).ok);
   assert.equal(e.state.owners[3], null);
   assert.equal(e.view('A').pendingPurchase, null);
+  assert.ok(e.applyIntent('A', { type: 'END_TURN' }).ok);
   assert.equal(cur(e), 'B');
 });
 
@@ -408,12 +415,14 @@ test('Get Out of Jail Free is held, then JAIL_USE_CARD frees the player', () => 
   // now jail A and use the card
   Object.assign(P(e, 'A'), { inJail: true, position: 10, jailTurns: 0 });
   e.state.current = 0;
-  dice(e, [6, 4]); // 10 → Free Parking (neutral, non-doubles, no card draw)
+  e.state.awaitingEnd = false;
+  setCommunityTop(e, 'CC15'); // index 17 is Community Chest; CC15 is a harmless +$10 (no move)
+  dice(e, [6, 1]); // 7, non-doubles → index 17
   const r = e.applyIntent('A', { type: 'JAIL_USE_CARD' });
   assert.ok(r.ok);
   assert.equal(P(e, 'A').inJail, false);
   assert.equal(e.view('A').players.find((p) => p.isYou).jailCards, 0);
-  assert.equal(P(e, 'A').position, 20); // 10 + 10 → Free Parking
+  assert.equal(P(e, 'A').position, 17); // 10 + 7
 });
 
 test('JAIL_PAY deducts $50 and frees the player, then they move', () => {
@@ -445,4 +454,133 @@ test('repair card charges $0 with no houses (formula ready for Phase 4)', () => 
   const before = P(e, 'A').money;
   e.applyIntent('A', { type: 'ROLL' });
   assert.equal(before - P(e, 'A').money, 0);
+});
+
+// ===== Phase 4: houses & hotels =====
+
+test('cannot build without the full color group', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; // only Mediterranean (brown group needs Baltic too)
+  assert.equal(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 1 }).error, 'NOT_FULL_GROUP');
+  assert.equal(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 5 }).error, 'NOT_BUILDABLE'); // railroad
+});
+
+test('building is allowed on a complete group during your turn (not land-dependent)', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A';
+  P(e, 'A').position = 30; // standing elsewhere — still allowed
+  assert.ok(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 1 }).ok);
+  assert.equal(e.state.houses[1], 1);
+});
+
+test('even-build is enforced within a color group', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A';
+  assert.ok(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 1 }).ok);
+  assert.equal(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 1 }).error, 'UNEVEN_BUILD');
+  assert.ok(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 3 }).ok); // evens it out
+  assert.equal(e.state.houses[1], 1);
+  assert.equal(e.state.houses[3], 1);
+});
+
+test('building deducts the per-group cost and decrements bank supply', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A';
+  const before = P(e, 'A').money;
+  const bank = e.state.bank.houses;
+  e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 1 }); // brown = $50/house
+  assert.equal(before - P(e, 'A').money, 50);
+  assert.equal(e.state.bank.houses, bank - 1);
+  const v = e.view('A');
+  assert.equal(v.board[1].houses, 1);
+  assert.equal(v.bank.houses, bank - 1);
+});
+
+test('the 5th building becomes a hotel and returns 4 houses to the bank', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A';
+  for (const i of [1, 3, 1, 3, 1, 3, 1, 3]) e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: i }); // 4 each
+  assert.equal(e.state.houses[1], 4);
+  const bankBefore = e.state.bank.houses;
+  const hotelsBefore = e.state.bank.hotels;
+  const r = e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 1 }); // hotel
+  assert.ok(r.ok);
+  assert.equal(e.state.hotels[1], true);
+  assert.equal(e.state.houses[1], 0);
+  assert.equal(e.state.bank.houses, bankBefore + 4, '4 houses returned to bank');
+  assert.equal(e.state.bank.hotels, hotelsBefore - 1);
+});
+
+test('rent uses the correct house/hotel tier', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A';
+  e.state.houses[3] = 3; // Baltic with 3 houses → rentTable[3] = 180
+  Object.assign(P(e, 'B'), { position: 0 }); e.state.current = 1; e.state.awaitingEnd = false;
+  let before = P(e, 'B').money; dice(e, [1, 2]); e.applyIntent('B', { type: 'ROLL' });
+  assert.equal(before - P(e, 'B').money, 180);
+
+  e.state.houses[3] = 0; e.state.hotels[3] = true; // hotel → rentTable[5] = 450
+  Object.assign(P(e, 'B'), { position: 0 }); e.state.current = 1; e.state.awaitingEnd = false;
+  before = P(e, 'B').money; dice(e, [1, 2]); e.applyIntent('B', { type: 'ROLL' });
+  assert.equal(before - P(e, 'B').money, 450);
+});
+
+test('bank supply exhaustion blocks building (houses and hotels)', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A';
+  e.state.bank.houses = 0;
+  assert.equal(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 1 }).error, 'NO_HOUSES_LEFT');
+  e.state.bank.houses = 32; e.state.houses[1] = 4; e.state.houses[3] = 4; e.state.bank.hotels = 0;
+  assert.equal(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 1 }).error, 'NO_HOTELS_LEFT');
+});
+
+test('selling returns half cost and respects even-build in reverse', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A';
+  e.state.houses[1] = 2; e.state.houses[3] = 2;
+  const before = P(e, 'A').money;
+  const bank = e.state.bank.houses;
+  assert.ok(e.applyIntent('A', { type: 'SELL_HOUSE', spaceIndex: 1 }).ok); // brown $50 → refund $25
+  assert.equal(P(e, 'A').money - before, 25);
+  assert.equal(e.state.houses[1], 1);
+  assert.equal(e.state.bank.houses, bank + 1);
+  // lot 1 now has 1, lot 3 has 2 → cannot sell from lot 1 (not the max)
+  assert.equal(e.applyIntent('A', { type: 'SELL_HOUSE', spaceIndex: 1 }).error, 'UNEVEN_SELL');
+});
+
+test('selling a hotel converts it back to 4 houses (drawn from the bank)', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A';
+  e.state.hotels[1] = true; e.state.houses[3] = 4; // lot1 hotel (level 5) is the group max
+  const before = P(e, 'A').money;
+  assert.ok(e.applyIntent('A', { type: 'SELL_HOUSE', spaceIndex: 1 }).ok);
+  assert.equal(e.state.hotels[1], false);
+  assert.equal(e.state.houses[1], 4);
+  assert.equal(P(e, 'A').money - before, 25);
+
+  // if the bank lacks 4 houses, the hotel downgrade is rejected
+  const e2 = makeEngine(); e2.start();
+  e2.state.owners[1] = 'A'; e2.state.owners[3] = 'A';
+  e2.state.hotels[1] = true; e2.state.houses[3] = 4; e2.state.bank.houses = 3;
+  assert.equal(e2.applyIntent('A', { type: 'SELL_HOUSE', spaceIndex: 1 }).error, 'NO_HOUSES_FOR_DOWNGRADE');
+});
+
+test('INSUFFICIENT_FUNDS rejects a build the player cannot afford', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[37] = 'A'; e.state.owners[39] = 'A'; // darkBlue = $200/house
+  P(e, 'A').money = 100;
+  assert.equal(e.applyIntent('A', { type: 'BUILD_HOUSE', spaceIndex: 37 }).error, 'INSUFFICIENT_FUNDS');
+  assert.equal(e.state.houses[37], 0);
+  assert.equal(P(e, 'A').money, 100, 'no money spent on a rejected build');
+});
+
+test('repair cards now charge real amounts (a hotel counts as a hotel, not 4 houses)', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.houses[1] = 3; // 3 houses
+  e.state.owners[3] = 'A'; e.state.hotels[3] = true; // 1 hotel
+  setChanceTop(e, 'CH11'); // General repairs: $25/house, $100/hotel
+  P(e, 'A').position = 4; dice(e, [1, 2]); // → 7 Chance
+  const before = P(e, 'A').money;
+  e.applyIntent('A', { type: 'ROLL' });
+  assert.equal(before - P(e, 'A').money, 3 * 25 + 1 * 100); // 175
 });

@@ -30,8 +30,16 @@ const UTILITY_MULT = { 1: 4, 2: 10 };
 
 const OWNABLE_TYPES = new Set(['property', 'railroad', 'utility']);
 
+// Phase 4: limited bank building supply and per-color-group house cost (official).
+const BANK_HOUSES = 32;
+const BANK_HOTELS = 12;
+const HOUSE_COST = {
+  brown: 50, lightBlue: 50, pink: 100, orange: 100, red: 150, yellow: 150, green: 200, darkBlue: 200,
+};
+
 const prop = (index, name, color, price, rentTable) => ({
   index, name, type: 'property', color, colorGroup: color, price, baseRent: rentTable[0], rentTable,
+  houseCost: HOUSE_COST[color],
 });
 const rail = (index, name) => ({ index, name, type: 'railroad', price: RAILROAD_PRICE });
 const util = (index, name) => ({ index, name, type: 'utility', price: UTILITY_PRICE });
@@ -142,5 +150,8 @@ module.exports = {
   BOARD,
   CHANCE_CARDS,
   COMMUNITY_CARDS,
+  HOUSE_COST,
+  BANK_HOUSES,
+  BANK_HOTELS,
   DEFAULT_CONFIG,
 };
