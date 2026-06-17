@@ -42,10 +42,16 @@ function clampInt(v, min, max, fallback) {
 
 // ---- defensive guard rails (NOT game rules) ------------------------------
 const VALID_COLORS = new Set(['red', 'yellow', 'green', 'blue', 'pink', 'teal', 'orange', 'purple']);
-const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD', 'BUILD_HOUSE', 'SELL_HOUSE']);
+const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD', 'BUILD_HOUSE', 'SELL_HOUSE',
+  'MORTGAGE', 'UNMORTGAGE', 'PROPOSE_TRADE', 'ACCEPT_TRADE', 'DECLINE_TRADE', 'CANCEL_TRADE',
+  'AUCTION_BID', 'AUCTION_PASS', 'SETTLE_DEBT', 'DECLARE_BANKRUPTCY',
+  'CALL_END_GAME', 'AGREE_END', 'DECLINE_END']);
 const isShortStr = (v) => typeof v === 'string' && v.length > 0 && v.length <= 64;
 const isColorStr = (v) => typeof v === 'string' && VALID_COLORS.has(v);
 const isIdList = (v) => Array.isArray(v) && v.length <= 64 && v.every(isShortStr);
+const isNonNegInt = (v) => Number.isInteger(v) && v >= 0;
+const isSpaceIdx = (v) => Number.isInteger(v) && v >= 0 && v <= 39;
+const isSpaceIdxList = (v) => Array.isArray(v) && v.length <= 28 && v.every(isSpaceIdx);
 
 /**
  * Validate an intent is a well-formed object with a known `type` and correctly
@@ -86,7 +92,25 @@ function validateIntent(intent) {
       return true;
     case 'BUILD_HOUSE':       // Monopoly Phase 4
     case 'SELL_HOUSE':        // Monopoly Phase 4
-      return Number.isInteger(intent.spaceIndex) && intent.spaceIndex >= 0 && intent.spaceIndex <= 39;
+    case 'MORTGAGE':          // Monopoly Phase 5
+    case 'UNMORTGAGE':        // Monopoly Phase 5
+      return isSpaceIdx(intent.spaceIndex);
+    case 'PROPOSE_TRADE':     // Monopoly Phase 5
+      return isShortStr(intent.toPlayerId)
+        && isSpaceIdxList(intent.offerProps) && isSpaceIdxList(intent.requestProps)
+        && isNonNegInt(intent.offerCash) && isNonNegInt(intent.requestCash);
+    case 'AUCTION_BID':       // Monopoly Phase 5
+      return isNonNegInt(intent.amount);
+    case 'ACCEPT_TRADE':      // Monopoly Phase 5
+    case 'DECLINE_TRADE':
+    case 'CANCEL_TRADE':
+    case 'AUCTION_PASS':
+    case 'SETTLE_DEBT':
+    case 'DECLARE_BANKRUPTCY':
+    case 'CALL_END_GAME':
+    case 'AGREE_END':
+    case 'DECLINE_END':
+      return true;
     default:
       return false;
   }

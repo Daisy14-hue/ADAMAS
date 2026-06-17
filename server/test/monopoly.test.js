@@ -260,14 +260,22 @@ test('utility rent = dice total ×4 (one) or ×10 (both)', () => {
   assert.equal(rentOnElectric(), 30); // 3 × 10
 });
 
-test('declining leaves the property unowned', () => {
+test('declining opens an auction; an all-pass auction leaves it unowned', () => {
+  // Phase 5: DECLINE now triggers an ascending auction (replaces the old
+  // Phase-2 "decline leaves it unowned" behavior). An all-pass auction still
+  // leaves the property unowned and the decliner's turn then ends normally.
   const e = makeEngine(); e.start();
   dice(e, [1, 2]); // A → Baltic
   e.applyIntent('A', { type: 'ROLL' });
   assert.ok(e.view('A').pendingPurchase);
   assert.ok(e.applyIntent('A', { type: 'DECLINE_PROPERTY' }).ok);
-  assert.equal(e.state.owners[3], null);
   assert.equal(e.view('A').pendingPurchase, null);
+  assert.ok(e.view('A').pendingAuction, 'an auction is now open');
+  // everyone passes → stays unowned
+  e.applyIntent('A', { type: 'AUCTION_PASS' });
+  e.applyIntent('B', { type: 'AUCTION_PASS' });
+  assert.equal(e.state.pendingAuction, null);
+  assert.equal(e.state.owners[3], null, 'all-pass leaves it unowned');
   assert.ok(e.applyIntent('A', { type: 'END_TURN' }).ok);
   assert.equal(cur(e), 'B');
 });
@@ -583,4 +591,190 @@ test('repair cards now charge real amounts (a hotel counts as a hotel, not 4 hou
   const before = P(e, 'A').money;
   e.applyIntent('A', { type: 'ROLL' });
   assert.equal(before - P(e, 'A').money, 3 * 25 + 1 * 100); // 175
+});
+
+// ===== Phase 5: mortgaging, trading, auctions, bankruptcy, win =====
+
+// -- mortgaging --
+test('mortgage credits half the price and sets the mortgaged flag', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[3] = 'A'; // Baltic $60 → mortgage value 30
+  const before = P(e, 'A').money;
+  assert.ok(e.applyIntent('A', { type: 'MORTGAGE', spaceIndex: 3 }).ok);
+  assert.equal(P(e, 'A').money - before, 30);
+  assert.equal(e.state.mortgaged[3], true);
+  assert.equal(e.view('A').board[3].mortgaged, true);
+});
+
+test('cannot mortgage while the color group has buildings', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A'; e.state.houses[1] = 1;
+  assert.equal(e.applyIntent('A', { type: 'MORTGAGE', spaceIndex: 3 }).error, 'CANNOT_MORTGAGE_WITH_BUILDINGS');
+});
+
+test('no rent is charged on a mortgaged space; unmortgage (+10%) re-enables rent', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[3] = 'A'; e.state.mortgaged[3] = true;
+  Object.assign(P(e, 'B'), { position: 0 }); e.state.current = 1; e.state.awaitingEnd = false;
+  let bBefore = P(e, 'B').money;
+  dice(e, [1, 2]); e.applyIntent('B', { type: 'ROLL' }); // → Baltic (mortgaged → no rent)
+  assert.equal(P(e, 'B').money, bBefore, 'no rent while mortgaged');
+  // A unmortgages: cost = round(30 * 1.1) = 33
+  const aBefore = P(e, 'A').money;
+  e.state.current = 0;
+  assert.ok(e.applyIntent('A', { type: 'UNMORTGAGE', spaceIndex: 3 }).ok);
+  assert.equal(aBefore - P(e, 'A').money, 33);
+  assert.equal(e.state.mortgaged[3], false);
+  // now rent is due again
+  Object.assign(P(e, 'B'), { position: 0 }); e.state.current = 1; e.state.awaitingEnd = false;
+  bBefore = P(e, 'B').money;
+  dice(e, [1, 2]); e.applyIntent('B', { type: 'ROLL' });
+  assert.equal(bBefore - P(e, 'B').money, 4, 'Baltic base rent 4 after unmortgage');
+});
+
+test('railroad rent counts only UNMORTGAGED owned railroads', () => {
+  const e = makeEngine(); e.start();
+  e.state.owners[5] = 'A'; e.state.owners[15] = 'A';
+  assert.equal(e._railroadRent('A'), 50); // 2 railroads
+  e.state.mortgaged[15] = true;
+  assert.equal(e._railroadRent('A'), 25); // only 1 counts
+});
+
+// -- trading --
+test('a trade transfers properties and cash both ways', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[3] = 'A'; e.state.owners[6] = 'B'; e.state.current = 0;
+  e.applyIntent('A', { type: 'PROPOSE_TRADE', toPlayerId: 'B', offerProps: [3], offerCash: 100, requestProps: [6], requestCash: 0 });
+  assert.ok(e.view('A').pendingTrade);
+  assert.ok(e.applyIntent('B', { type: 'ACCEPT_TRADE' }).ok);
+  assert.equal(e.state.owners[3], 'B');
+  assert.equal(e.state.owners[6], 'A');
+  assert.equal(P(e, 'A').money, 1400);
+  assert.equal(P(e, 'B').money, 1600);
+  assert.equal(e.state.pendingTrade, null);
+});
+
+test('trading a developed property auto-sells its buildings first', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[1] = 'A'; e.state.owners[3] = 'A'; e.state.houses[1] = 2; e.state.houses[3] = 2;
+  e.state.owners[6] = 'B'; e.state.current = 0;
+  const aBefore = P(e, 'A').money;
+  e.applyIntent('A', { type: 'PROPOSE_TRADE', toPlayerId: 'B', offerProps: [3], offerCash: 0, requestProps: [6], requestCash: 0 });
+  assert.ok(e.applyIntent('B', { type: 'ACCEPT_TRADE' }).ok);
+  assert.equal(e.state.houses[1], 0);
+  assert.equal(e.state.houses[3], 0);
+  assert.equal(P(e, 'A').money - aBefore, 100, '4 brown houses sold @ $25 each');
+  assert.equal(e.state.owners[3], 'B');
+});
+
+test('a trade a side cannot afford is rejected (TRADE_UNAFFORDABLE)', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[3] = 'A'; e.state.owners[6] = 'B'; P(e, 'B').money = 50; e.state.current = 0;
+  e.applyIntent('A', { type: 'PROPOSE_TRADE', toPlayerId: 'B', offerProps: [3], offerCash: 0, requestProps: [6], requestCash: 1000 });
+  assert.equal(e.applyIntent('B', { type: 'ACCEPT_TRADE' }).error, 'TRADE_UNAFFORDABLE');
+  assert.equal(e.state.owners[3], 'A', 'ownership unchanged on a rejected trade');
+});
+
+test('declining or cancelling a trade leaves state unchanged', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[3] = 'A'; e.state.owners[6] = 'B'; e.state.current = 0;
+  e.applyIntent('A', { type: 'PROPOSE_TRADE', toPlayerId: 'B', offerProps: [3], offerCash: 0, requestProps: [6], requestCash: 0 });
+  assert.ok(e.applyIntent('B', { type: 'DECLINE_TRADE' }).ok);
+  assert.equal(e.state.pendingTrade, null);
+  assert.equal(e.state.owners[3], 'A');
+  // cancel path
+  e.applyIntent('A', { type: 'PROPOSE_TRADE', toPlayerId: 'B', offerProps: [3], offerCash: 0, requestProps: [6], requestCash: 0 });
+  assert.ok(e.applyIntent('A', { type: 'CANCEL_TRADE' }).ok);
+  assert.equal(e.state.pendingTrade, null);
+  assert.equal(e.state.owners[6], 'B');
+});
+
+// -- auctions --
+test('auction: ascending bids, passes remove bidders, last bidder wins at currentBid', () => {
+  const e = makeEngine(['A', 'B', 'C']); e.start();
+  P(e, 'A').position = 0; dice(e, [1, 2]); e.applyIntent('A', { type: 'ROLL' }); // → Baltic
+  e.applyIntent('A', { type: 'DECLINE_PROPERTY' });
+  assert.equal(e.view('A').pendingAuction.minBid, 10);
+  assert.equal(e.applyIntent('A', { type: 'AUCTION_BID', amount: 5 }).error, 'BID_TOO_LOW'); // below min
+  e.applyIntent('A', { type: 'AUCTION_BID', amount: 10 });
+  e.applyIntent('B', { type: 'AUCTION_BID', amount: 25 });
+  e.applyIntent('C', { type: 'AUCTION_PASS' });
+  e.applyIntent('A', { type: 'AUCTION_PASS' });
+  assert.equal(e.state.pendingAuction, null);
+  assert.equal(e.state.owners[3], 'B');
+  assert.equal(P(e, 'B').money, 1475); // 1500 - 25
+});
+
+test('auction: the decliner may bid and win', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  P(e, 'A').position = 0; dice(e, [1, 2]); e.applyIntent('A', { type: 'ROLL' });
+  e.applyIntent('A', { type: 'DECLINE_PROPERTY' });
+  e.applyIntent('A', { type: 'AUCTION_BID', amount: 10 });
+  e.applyIntent('B', { type: 'AUCTION_PASS' });
+  assert.equal(e.state.owners[3], 'A');
+  assert.equal(P(e, 'A').money, 1490);
+});
+
+// -- bankruptcy / debt --
+test('debt: a player short on rent can mortgage to raise funds then settle', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[39] = 'A'; // Boardwalk (rent 50)
+  e.state.owners[1] = 'B'; e.state.owners[3] = 'B'; // browns to mortgage (30 each)
+  Object.assign(P(e, 'B'), { money: 20, position: 36 }); e.state.current = 1;
+  dice(e, [1, 2]); e.applyIntent('B', { type: 'ROLL' }); // → Boardwalk, rent 50 → -30
+  assert.equal(e.state.pendingDebt.amount, 30);
+  assert.equal(e.state.pendingDebt.creditorId, 'A');
+  e.applyIntent('B', { type: 'MORTGAGE', spaceIndex: 1 });
+  e.applyIntent('B', { type: 'MORTGAGE', spaceIndex: 3 }); // +60 → money 30
+  assert.ok(e.applyIntent('B', { type: 'SETTLE_DEBT' }).ok);
+  assert.equal(e.state.pendingDebt, null);
+  assert.equal(P(e, 'B').money, 30);
+});
+
+test('bankruptcy to a player transfers the estate and eliminates the debtor (last standing wins)', () => {
+  const e = makeEngine(['A', 'B']); e.start();
+  e.state.owners[39] = 'A'; e.state.owners[6] = 'B';
+  Object.assign(P(e, 'B'), { money: 10, position: 36 }); e.state.current = 1;
+  dice(e, [1, 2]); e.applyIntent('B', { type: 'ROLL' }); // rent 50 → -40 debt to A
+  assert.ok(e.state.pendingDebt);
+  assert.ok(e.applyIntent('B', { type: 'DECLARE_BANKRUPTCY' }).ok);
+  assert.equal(P(e, 'B').eliminated, true);
+  assert.equal(e.state.owners[6], 'A', 'estate property went to the creditor');
+  assert.equal(e.state.status, 'finished');
+  assert.equal(e.state.winner, 'A');
+});
+
+test('bankruptcy to the bank returns properties unowned and skips the eliminated player', () => {
+  const e = makeEngine(['A', 'B', 'C']); e.start();
+  e.state.owners[6] = 'B';
+  Object.assign(P(e, 'B'), { money: 50, position: 0 }); e.state.current = 1;
+  dice(e, [2, 2]); e.applyIntent('B', { type: 'ROLL' }); // 0 → 4 Income Tax $200 → -150 (bank debt)
+  assert.equal(e.state.pendingDebt.creditorId, null);
+  assert.ok(e.applyIntent('B', { type: 'DECLARE_BANKRUPTCY' }).ok);
+  assert.equal(P(e, 'B').eliminated, true);
+  assert.equal(e.state.owners[6], null, 'bank debt → property returned unowned');
+  assert.equal(e.state.status, 'playing', '3 players → still going');
+  assert.equal(cur(e), 'C', 'eliminated B is skipped');
+});
+
+// -- agreed end --
+test('agreed end: when all remaining players agree, the highest net worth wins', () => {
+  const e = makeEngine(['A', 'B', 'C']); e.start();
+  e.state.owners[39] = 'A'; // Boardwalk → A net worth 1900
+  e.state.current = 0;
+  e.applyIntent('A', { type: 'CALL_END_GAME' });
+  e.applyIntent('B', { type: 'AGREE_END' });
+  assert.equal(e.state.status, 'playing', 'not finished until everyone agrees');
+  assert.ok(e.applyIntent('C', { type: 'AGREE_END' }).ok);
+  assert.equal(e.state.status, 'finished');
+  assert.equal(e.state.winner, 'A');
+});
+
+test('agreed end: any decline cancels the vote and play continues', () => {
+  const e = makeEngine(['A', 'B', 'C']); e.start();
+  e.state.current = 0;
+  e.applyIntent('A', { type: 'CALL_END_GAME' });
+  assert.ok(e.applyIntent('B', { type: 'DECLINE_END' }).ok);
+  assert.equal(e.state.endVote, null);
+  assert.equal(e.state.status, 'playing');
 });

@@ -598,4 +598,9 @@ body { background-attachment: fixed; }
 .manage-row:last-child { border-bottom: none; }
 .manage-name { font-size: 13px; font-weight: 600; }
 .group-dot { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.3); }
+.prop-chip.mtg { opacity: .55; filter: grayscale(.6); text-decoration: line-through; }
+.trade-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.trade-chip { font-size: 12px; padding: 3px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-2); cursor: pointer; transition: all .12s; }
+.trade-chip:hover { border-color: var(--accent); }
+.trade-chip.sel { background: rgba(124,92,255,.25); border-color: var(--accent); color: #fff; }
 /* EOF globals.css */
