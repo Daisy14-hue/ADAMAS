@@ -617,7 +617,7 @@ body { background-attachment: fixed; }
 .mono-space-name { font: 700 15px system-ui, sans-serif; fill: #11151d; pointer-events: none; }
 .mono-space-price { font: 600 13px system-ui, sans-serif; fill: #3a4150; pointer-events: none; }
 .mono-space-icon { font-size: 26px; pointer-events: none; }
-.mono-space-build { font-size: 18px; pointer-events: none; }
+.mono-build-icon { pointer-events: none; }
 .mono-corner-text { font: 800 17px system-ui, sans-serif; fill: #11151d; pointer-events: none; }
 .mono-center-title { font: 900 84px system-ui, sans-serif; fill: #1f9e57; letter-spacing: 4px; opacity: .85; }
 .mono-center-sub { font: 800 52px system-ui, sans-serif; fill: #2b54d6; letter-spacing: 6px; opacity: .8; }

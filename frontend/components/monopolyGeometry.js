@@ -34,6 +34,32 @@ export function colorBarRect(r) {
   }
 }
 
+/**
+ * Positions for the house/hotel indicator row, sitting just INSIDE the colour
+ * bar (toward the board centre) — classic Monopoly placement. Returns
+ * { slots:[{x,y}], fs } where fs is an emoji font-size that shrinks as count
+ * grows so 4 houses fit in one row. `count` is clamped to 1 for a hotel.
+ */
+export function buildingSlots(r, count) {
+  const n = Math.max(1, Math.min(4, count));
+  const horiz = r.edge === 'bottom' || r.edge === 'top';
+  const span = horiz ? r.w : r.h;
+  // shrink to fit: keep total row width under the available span
+  const fs = Math.min(horiz ? 22 : 20, (span * 0.82) / n);
+  const pad = BAR + fs * 0.7; // distance from outer face to the row's centre line
+  const slots = [];
+  if (r.edge === 'bottom' || r.edge === 'top') {
+    const y = r.edge === 'bottom' ? r.y + pad : r.y + r.h - pad;
+    const step = r.w / (n + 1);
+    for (let i = 0; i < n; i++) slots.push({ x: r.x + step * (i + 1), y });
+  } else {
+    const x = r.edge === 'left' ? r.x + r.w - pad : r.x + pad;
+    const step = r.h / (n + 1);
+    for (let i = 0; i < n; i++) slots.push({ x, y: r.y + step * (i + 1) });
+  }
+  return { slots, fs };
+}
+
 // Distinct token colours by seat order.
 export const TOKEN_COLORS = ['#e2433b', '#2b7fd6', '#2fd07a', '#f5b914', '#e85aa8', '#8b5cf6', '#00d4ff', '#e8893a'];
 

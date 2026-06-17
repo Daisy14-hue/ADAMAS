@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { playClick } from '@/lib/sound';
-import { spaceRect, colorBarRect, VB, TOKEN_COLORS, CLUSTER } from './monopolyGeometry';
+import { spaceRect, colorBarRect, buildingSlots, VB, TOKEN_COLORS, CLUSTER } from './monopolyGeometry';
 
 /**
  * Monopoly — Phase 6 graphical board (SVG) + Phases 1-5 management panels.
@@ -78,10 +78,17 @@ function BoardSvg({ view, selected, onSelect }) {
             </g>
             {/* ownership marker */}
             {owner && <circle cx={r.x + 9} cy={r.y + 9} r="6" fill={seatColor[owner.id]} stroke="#0b0d12" strokeWidth="1.5" />}
-            {/* building count (text per spec; icons are a later pass) */}
-            {isProp && (sp.hotel || sp.houses > 0) && (
-              <text x={r.x + r.w - 6} y={r.y + r.h - 6} textAnchor="end" className="mono-space-build">{sp.hotel ? '🏨' : `🏠${sp.houses}`}</text>
-            )}
+            {/* house/hotel indicators along the inner edge (classic placement) */}
+            {isProp && sp.hotel && (() => {
+              const { slots, fs } = buildingSlots(r, 1);
+              return <text x={slots[0].x} y={slots[0].y} textAnchor="middle" dominantBaseline="central" className="mono-build-icon" style={{ fontSize: fs }}>🏨</text>;
+            })()}
+            {isProp && !sp.hotel && sp.houses > 0 && (() => {
+              const { slots, fs } = buildingSlots(r, sp.houses);
+              return slots.map((s, i) => (
+                <text key={i} x={s.x} y={s.y} textAnchor="middle" dominantBaseline="central" className="mono-build-icon" style={{ fontSize: fs }}>🏠</text>
+              ));
+            })()}
             {selected === sp.index && <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="none" stroke="#7c5cff" strokeWidth="5" />}
           </g>
         );
