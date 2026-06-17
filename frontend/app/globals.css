@@ -604,3 +604,31 @@ body { background-attachment: fixed; }
 .trade-chip:hover { border-color: var(--accent); }
 .trade-chip.sel { background: rgba(124,92,255,.25); border-color: var(--accent); color: #fff; }
 /* EOF globals.css */
+
+/* ===== Monopoly Phase 6 — graphical SVG board ===== */
+.mono-layout { display: grid; grid-template-columns: minmax(420px, 720px) 1fr; gap: 18px; padding: 8px 14px 18px; align-items: start; }
+@media (max-width: 1100px) { .mono-layout { grid-template-columns: 1fr; } }
+.mono-layout .mono-main { padding: 0; }
+.mono-layout .mono-main { grid-template-columns: 1fr; }
+.mono-boardwrap { background: linear-gradient(180deg, var(--panel), var(--bg-2)); border: 1px solid var(--border); border-radius: 16px; padding: 14px; box-shadow: var(--shadow-soft); position: sticky; top: 12px; }
+.mono-svg { width: 100%; height: auto; display: block; border-radius: 8px; background: #cfe8d6; }
+.mono-space { cursor: pointer; }
+.mono-space:hover rect:first-child { fill: #fffdf4; }
+.mono-space-name { font: 700 15px system-ui, sans-serif; fill: #11151d; pointer-events: none; }
+.mono-space-price { font: 600 13px system-ui, sans-serif; fill: #3a4150; pointer-events: none; }
+.mono-space-icon { font-size: 26px; pointer-events: none; }
+.mono-space-build { font-size: 18px; pointer-events: none; }
+.mono-corner-text { font: 800 17px system-ui, sans-serif; fill: #11151d; pointer-events: none; }
+.mono-center-title { font: 900 84px system-ui, sans-serif; fill: #1f9e57; letter-spacing: 4px; opacity: .85; }
+.mono-center-sub { font: 800 52px system-ui, sans-serif; fill: #2b54d6; letter-spacing: 6px; opacity: .8; }
+.mono-token-text { font: 800 22px system-ui, sans-serif; fill: #fff; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.mono-token { pointer-events: none; }
+
+/* read-only space detail popup */
+.space-detail { max-width: 360px; position: relative; }
+.space-detail .detail-bar { height: 14px; border-radius: 6px; border: 1px solid #0b0d12; margin-bottom: 6px; }
+.detail-rows { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.detail-rows > div { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; font-size: 14px; }
+.detail-rows .muted { flex: 0 0 auto; }
+.detail-rows b { text-align: right; }
+.mono-money-neg { color: var(--danger); }
