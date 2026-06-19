@@ -68,7 +68,7 @@ export function NameScreen({ initialName = '', onSubmit, onBack }) {
 const UNO_VARIANTS = [
   { id: 'noMercy', title: 'UNO No Mercy', tag: 'Playable now', playable: true },
   { id: 'flip', title: 'UNO Flip', tag: 'Playable now', playable: true },
-  { id: 'spin', title: 'UNO Spin', tag: 'Playable now', playable: true },
+  { id: 'spin', title: 'UNO Spin', tag: 'Coming Soon', playable: false },
   { id: 'soon', title: 'Coming Soon', tag: 'Locked', playable: false },
 ];
 const OTHER_GAMES = [

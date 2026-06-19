@@ -25,6 +25,7 @@ export const DRAW_TYPES = new Set([
 const COLOR_ACTIONS = new Set([
   'skip', 'reverse', 'draw2', 'skipEveryone', 'discardAll', // No Mercy
   'drawOne', 'drawFive', 'flip', // Flip (skip/reverse/skipEveryone shared)
+  'spin', // spin
 ]);
 
 export function isWildType(type) {
@@ -48,6 +49,7 @@ export function cardGlyph(card) {
     case 'flip': return '⇅';
     case 'drawOne': return '+1';
     case 'drawFive': return '+5';
+    case 'spin': return '🎡';
     case 'wild': return 'W';
     case 'wildDraw4': return '+4';
     case 'wildDraw6': return '+6';
@@ -65,7 +67,7 @@ export function cardLabel(card) {
   const names = {
     number: `${card.value}`,
     skip: 'Skip', reverse: 'Reverse', draw2: 'Draw 2', skipEveryone: 'Skip Everyone',
-    discardAll: 'Discard All', flip: 'Flip', drawOne: 'Draw One', drawFive: 'Draw Five',
+    discardAll: 'Discard All', flip: 'Flip', drawOne: 'Draw One', drawFive: 'Draw Five', spin: 'Spin',
     wild: 'Wild', wildDraw4: 'Wild Draw 4', wildDraw6: 'Wild Draw 6', wildDraw10: 'Wild Draw 10',
     wildReverseDraw4: 'Wild Reverse Draw 4', wildRoulette: 'Wild Color Roulette',
     wildDrawTwo: 'Wild Draw Two', wildDrawColor: 'Wild Draw Color',

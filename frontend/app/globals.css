@@ -210,14 +210,23 @@ a { color: inherit; }
 
 /* hand */
 .hand-wrap { display:flex; flex-direction: column; align-items: center; gap: 10px; }
-.hand { display:flex; justify-content:center; align-items: flex-end; padding: 6px 10px 14px; min-height: 150px; flex-wrap: wrap; gap: 2px; }
-.hand .card-slot { margin-left: -22px; transition: transform .18s ease, margin .18s ease; }
+.hand { display:flex; justify-content:center; align-items: flex-end; padding: 28px 10px 14px; min-height: 160px; flex-wrap: nowrap; gap: 0; overflow: visible; max-width: 100%; }
+.hand .card-slot { margin-left: calc(-1 * var(--ov, 22px)); transition: transform .15s ease, margin .15s ease; animation: cardEnter .22s ease; will-change: transform; }
 .hand .card-slot:first-child { margin-left: 0; }
-.hand .card-slot:hover { transform: translateY(-16px); z-index: 5; }
-.hand .uno-card { cursor: pointer; transition: transform .18s, box-shadow .2s, filter .2s; }
-.hand .card-slot.playable .uno-card { box-shadow: 0 0 0 3px rgba(47,208,122,.8), 0 10px 22px rgba(0,0,0,.45); }
+.hand .card-slot:hover, .hand .card-slot:focus-within, .hand .card-slot:active { transform: translateY(-22px); z-index: 10; }
+.hand .uno-card { cursor: pointer; transition: transform .15s, box-shadow .2s, filter .2s; }
+.hand .card-slot.playable .uno-card { box-shadow: 0 0 0 3px rgba(47,208,122,.8), 0 10px 22px rgba(0,0,0,.45); animation: playableGlow 1.8s ease-in-out infinite; }
+@keyframes cardEnter { from { opacity: 0; transform: translateY(18px) scale(.92); } to { opacity: 1; transform: none; } }
+@keyframes playableGlow {
+  0%,100% { box-shadow: 0 0 0 3px rgba(47,208,122,.72), 0 10px 22px rgba(0,0,0,.45); }
+  50% { box-shadow: 0 0 0 3px rgba(47,208,122,1), 0 0 16px rgba(47,208,122,.55), 0 10px 22px rgba(0,0,0,.45); }
+}
+/* card-play fly-out toward the discard pile (cosmetic, non-blocking) */
+.fly-layer { position: fixed; inset: 0; pointer-events: none; z-index: 45; display: flex; align-items: flex-end; justify-content: center; }
+.flying-card { margin-bottom: 130px; animation: flyToDiscard .3s cubic-bezier(.4,0,.2,1) forwards; }
+@keyframes flyToDiscard { from { transform: translateY(0) scale(1); opacity: .95; } to { transform: translateY(-30vh) scale(.5) rotate(6deg); opacity: 0; } }
 .hand .card-slot.unplayable .uno-card { filter: brightness(.6) saturate(.7); cursor: not-allowed; }
-.hand .card-slot.unplayable:hover { transform: none; }
+@media (max-width: 560px) { .hand { padding-top: 24px; } }
 
 .controls { display:flex; gap: 12px; align-items:center; justify-content:center; flex-wrap: wrap; margin-top: 4px; }
 
@@ -244,7 +253,8 @@ a { color: inherit; }
 .swatch.green { background: var(--uno-green); } .swatch.blue { background: var(--uno-blue); }
 
 /* winner */
-.winner-card { text-align:center; padding: 40px 48px; }
+.winner-card { text-align:center; padding: 40px 48px; animation: winnerPop .42s cubic-bezier(.2,.9,.3,1.3); }
+@keyframes winnerPop { from { opacity: 0; transform: scale(.7) translateY(20px); } to { opacity: 1; transform: none; } }
 .winner-title { font-size: 44px; font-weight: 900; background: linear-gradient(120deg,#fff,#ffd86b,#00d4ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
 .confetti { position: fixed; top:-10px; width: 10px; height: 14px; opacity:.9; animation: fall linear forwards; z-index: 55; }
 
@@ -521,7 +531,7 @@ body { background-attachment: fixed; }
 }
 
 .mute-toggle {
-  position: fixed; top: 12px; right: 14px; z-index: 95;
+  position: fixed; bottom: 16px; right: 16px; z-index: 95;
   width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
   border: 1px solid var(--border); background: rgba(22,27,38,.8); backdrop-filter: blur(6px);
   color: var(--text); font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center;

@@ -5,6 +5,32 @@ import Card from './Card';
 import { isPlayable, needsColor } from '@/lib/cards';
 import SpinOverlays from './SpinOverlays';
 
+// Smoothly count a number toward `target` (used by the DRAW N stack counter).
+function useCountUp(target, ms = 260) {
+  const [val, setVal] = useState(target);
+  const ref = useRef(target);
+  useEffect(() => {
+    const from = ref.current;
+    const to = target;
+    if (from === to) return undefined;
+    const reduce = typeof window !== 'undefined' && window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { setVal(to); ref.current = to; return undefined; }
+    const start = performance.now();
+    let raf;
+    const tick = (t) => {
+      const k = Math.min(1, (t - start) / ms);
+      const e = 1 - Math.pow(1 - k, 3);
+      setVal(Math.round(from + (to - from) * e));
+      if (k < 1) raf = requestAnimationFrame(tick);
+      else ref.current = to;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return val;
+}
+
 export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const me = view.players.find((p) => p.isYou) || { hand: [] };
   const opponents = view.players.filter((p) => !p.isYou);
@@ -17,6 +43,8 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const [picker, setPicker] = useState(null); // { mode:'wild'|'roulette', card }
   const [shuffling, setShuffling] = useState(false);
   const [flipping, setFlipping] = useState(false);
+  const [flying, setFlying] = useState(null); // { card, id } cosmetic fly-to-discard
+  const flyKey = useRef(0);
   const prevSide = useRef(side);
   const prevTotal = useRef(stack.total);
   const prevDiscardCount = useRef(view.discardPileCount);
@@ -33,6 +61,15 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
 
   const stackFlash = stack.total !== prevTotal.current;
   useEffect(() => { prevTotal.current = stack.total; }, [stack.total]);
+  const stackDisplay = useCountUp(stack.total);
+
+  // Cosmetic: launch a card flying toward the discard pile (state already updated).
+  const launchFly = (card) => {
+    flyKey.current += 1;
+    const id = flyKey.current;
+    setFlying({ card, id });
+    setTimeout(() => setFlying((f) => (f && f.id === id ? null : f)), 320);
+  };
 
   // Flip side-switch animation.
   useEffect(() => {
@@ -50,18 +87,24 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
     if (!isPlayable(card, view)) return;
     if (card.type === 'wildRoulette') { setPicker({ mode: 'roulette', card }); return; }
     if (needsColor(card)) { setPicker({ mode: 'wild', card }); return; }
+    launchFly(card);
     onIntent({ type: 'PLAY_CARD', cardId: card.id });
   };
 
   const chooseColor = (color) => {
     const { mode, card } = picker;
     setPicker(null);
+    launchFly(card);
     if (mode === 'roulette') onIntent({ type: 'PLAY_CARD', cardId: card.id, rouletteColor: color });
     else onIntent({ type: 'PLAY_CARD', cardId: card.id, chosenColor: color });
   };
 
   const doDraw = () => { if (myTurn) onIntent({ type: 'DRAW' }); };
   const sayUno = () => onIntent({ type: 'SAY_UNO' });
+
+  // Adaptive hand overlap: few cards spread out (no overlap), big hands tuck tighter.
+  const handLen = (me.hand && me.hand.length) || 0;
+  const handOverlap = handLen <= 4 ? 0 : Math.min(56, Math.round((handLen - 4) * 7));
 
   const finished = view.status === 'finished';
   const winnerName = useMemo(() => {
@@ -128,7 +171,7 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
 
         {stack.active && (
           <div className={`stack-badge ${stackFlash ? 'stack-flash' : ''}`}>
-            <span>DRAW</span><span className="num">{stack.total}</span>
+            <span>DRAW</span><span className="num">{stackDisplay}</span>
             {view.drawStack.chainActive && <span title="Reverse chain active">⇄</span>}
           </div>
         )}
@@ -166,7 +209,7 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
               Say “UNO!”
             </button>
           </div>
-          <div className="hand">
+          <div className="hand" style={{ '--ov': `${handOverlap}px` }}>
             {me.hand && me.hand.map((card) => {
               const playable = myTurn && isPlayable(card, view);
               return (
@@ -193,6 +236,13 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
       )}
 
       {flipping && <div className="flip-flash" />}
+
+      {/* cosmetic card-play fly-out toward the discard (non-blocking) */}
+      {flying && (
+        <div className="fly-layer">
+          <div key={flying.id} className="flying-card"><Card card={flying.card} /></div>
+        </div>
+      )}
 
       <SpinOverlays view={view} onIntent={onIntent} />
 
@@ -241,4 +291,4 @@ function Confetti() {
     </>
   );
 }
-// EOF GameBoard.js
+// EOF GameBoard.js (hand layout)
