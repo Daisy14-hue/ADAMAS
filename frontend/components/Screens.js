@@ -36,7 +36,7 @@ export function NameScreen({ initialName = '', onSubmit, onBack }) {
   };
   return (
     <div className="landing">
-      <div className="card-panel" style={{ width: 'min(420px, 92vw)' }}>
+      <div className="card-panel panel-enter" style={{ width: 'min(420px, 92vw)' }}>
         <h2 style={{ marginTop: 0 }}>Choose a display name</h2>
         <p className="muted" style={{ marginTop: -6 }}>
           Phase 1 is name-only — no passwords, no accounts.
@@ -68,8 +68,7 @@ export function NameScreen({ initialName = '', onSubmit, onBack }) {
 const UNO_VARIANTS = [
   { id: 'noMercy', title: 'UNO No Mercy', tag: 'Playable now', playable: true },
   { id: 'flip', title: 'UNO Flip', tag: 'Playable now', playable: true },
-  { id: 'spin', title: 'UNO Spin', tag: 'Coming Soon', playable: false },
-  { id: 'soon', title: 'Coming Soon', tag: 'Locked', playable: false },
+  { id: 'spin', title: 'UNO Spin', tag: 'Locked', playable: false },
 ];
 const OTHER_GAMES = [
   { id: 'monopoly', title: 'Monopoly', tag: 'Phase 1', playable: true },
@@ -79,15 +78,16 @@ const OTHER_GAMES = [
 export function Hub({ onPick, onLocked }) {
   return (
     <div className="page">
-      <h2>Game Hub</h2>
-      <p className="muted" style={{ marginTop: -8 }}>Pick your poison. One playable, the rest landing soon.</p>
+      <h2 className="head-enter">Game Hub</h2>
+      <p className="muted head-enter" style={{ marginTop: -8 }}>Jack in and pick your arena — most are live, a few still encrypted.</p>
 
-      <h3 style={{ marginTop: 24 }}>UNO</h3>
+      <h3 className="head-enter" style={{ marginTop: 24 }}>UNO</h3>
       <div className="hub-grid">
-        {UNO_VARIANTS.map((v) => (
+        {UNO_VARIANTS.map((v, i) => (
           <div
             key={v.id}
-            className={`tile ${v.playable ? 'playable' : 'locked'}`}
+            style={{ '--i': i }}
+            className={`tile tile-enter ${v.playable ? 'playable' : 'locked'}`}
             onClick={() => (v.playable ? onPick(v.id) : onLocked(v.title))}
           >
             {!v.playable && <span className="lock-badge">🔒</span>}
@@ -97,12 +97,13 @@ export function Hub({ onPick, onLocked }) {
         ))}
       </div>
 
-      <h3 style={{ marginTop: 28 }}>More</h3>
+      <h3 className="head-enter" style={{ marginTop: 28 }}>More</h3>
       <div className="hub-grid">
-        {OTHER_GAMES.map((g) => (
+        {OTHER_GAMES.map((g, i) => (
           <div
             key={g.id}
-            className={`tile ${g.playable ? 'playable' : 'locked'}`}
+            style={{ '--i': i }}
+            className={`tile tile-enter ${g.playable ? 'playable' : 'locked'}`}
             onClick={() => (g.playable ? onPick(g.id) : onLocked(g.title))}
           >
             {!g.playable && <span className="lock-badge">🔒</span>}
@@ -123,12 +124,12 @@ export function RoomEntry({ onCreate, onJoin, onBack, busy, gameType }) {
       <button className="btn ghost" onClick={onBack}>← Back to hub</button>
       <h2 style={{ marginTop: 16 }}>{title} — Lobby</h2>
       <div className="lobby-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <div className="card-panel">
+        <div className="card-panel panel-enter">
           <h3 style={{ marginTop: 0 }}>Create Room</h3>
           <p className="muted">Spin up a fresh table. You&apos;ll be the host and set the limits.</p>
           <button className="btn primary" disabled={busy} onClick={onCreate}>Create Room</button>
         </div>
-        <div className="card-panel">
+        <div className="card-panel panel-enter">
           <h3 style={{ marginTop: 0 }}>Join Room</h3>
           <p className="muted">Got a room code? Drop it in.</p>
           <form
@@ -174,7 +175,7 @@ export function Lobby({ room, playerId, onUpdateConfig, onStart, onLeave }) {
       </div>
 
       <div className="lobby-grid">
-        <div className="card-panel">
+        <div className="card-panel panel-enter">
           <h3 style={{ marginTop: 0 }}>Players ({room.players.length})</h3>
           {room.players.map((p) => (
             <div className={`player-row ${p.connected === false ? 'is-offline' : ''}`} key={p.id}>
@@ -193,7 +194,7 @@ export function Lobby({ room, playerId, onUpdateConfig, onStart, onLeave }) {
           )}
         </div>
 
-        <div className="card-panel">
+        <div className="card-panel panel-enter">
           <h3 style={{ marginTop: 0 }}>Match settings</h3>
           {room.gameType !== 'flip' && (
             <div className="setting">

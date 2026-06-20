@@ -5,6 +5,7 @@ import { getSocket, emit } from '@/lib/socket';
 import { Landing, NameScreen, Hub, RoomEntry, Lobby } from '@/components/Screens';
 import GameBoard from '@/components/GameBoard';
 import MonopolyBoard from '@/components/MonopolyBoard';
+import CyberBackground from '@/components/CyberBackground';
 import { unlockAudio, setMuted as setSoundMuted, playClick, playCardSound, playYourTurn, playWin, playError } from '@/lib/sound';
 
 const ERRORS = {
@@ -282,19 +283,7 @@ export default function Home() {
       <button className="mute-toggle" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'} aria-label={muted ? 'Unmute' : 'Mute'}>
         {muted ? '🔇' : '🔊'}
       </button>
-      {showBg && (
-        <div className="bg-fx" aria-hidden="true">
-          <div className="bg-aurora">
-            <span className="blob b1" />
-            <span className="blob b2" />
-            <span className="blob b3" />
-            <span className="blob b4" />
-          </div>
-          <div className="stars" />
-          <div className="stars stars2" />
-          <div className="bg-grid" />
-        </div>
-      )}
+      {showBg && <CyberBackground />}
       {reconnecting && (
         <div className="reconnect-banner">
           <span className="spin" /> Reconnecting…
@@ -327,4 +316,4 @@ export default function Home() {
     </>
   );
 }
-// EOF page.js
+// EOF page.js (liveliness)
