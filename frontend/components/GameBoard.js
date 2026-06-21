@@ -39,6 +39,8 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const side = view.side; // 'light' | 'dark' for Flip; undefined for No Mercy
   const palette = side === 'dark' ? ['pink', 'teal', 'orange', 'purple'] : ['red', 'yellow', 'green', 'blue'];
   const amSpectator = me.eliminated === true; // eliminated → watch-only spectator mode
+  // Flip exposes `side`; No Mercy doesn't. Use that to label correctly (no hardcode).
+  const gameLabel = side !== undefined ? 'UNO Flip' : 'UNO No Mercy';
 
   const [picker, setPicker] = useState(null); // { mode:'wild'|'roulette', card }
   const [shuffling, setShuffling] = useState(false);
@@ -105,6 +107,13 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   // Adaptive hand overlap: few cards spread out (no overlap), big hands tuck tighter.
   const handLen = (me.hand && me.hand.length) || 0;
   const handOverlap = handLen <= 4 ? 0 : Math.min(56, Math.round((handLen - 4) * 7));
+  // Gentle fan: per-card rotation + slight arc dip toward the edges.
+  const fanMid = (handLen - 1) / 2;
+  const fanStep = handLen <= 1 ? 0 : Math.min(3.4, 26 / handLen); // deg between cards (capped)
+  const fanProps = (i) => {
+    const off = i - fanMid;
+    return { '--rot': `${(off * fanStep).toFixed(2)}deg`, '--ty': `${(Math.abs(off) * 2.2).toFixed(1)}px` };
+  };
 
   const finished = view.status === 'finished';
   const winnerName = useMemo(() => {
@@ -113,11 +122,11 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   }, [view.winner, view.players]);
 
   return (
-    <div className={`board ${side === 'dark' ? 'dark-side' : ''}`}>
+    <div className={`board arena ${side === 'dark' ? 'dark-side' : ''}`}>
       {/* top bar */}
       <div className="board-top">
         <button className="btn ghost" onClick={onLeave}>← Leave</button>
-        <span className="pill">Room {/* code lives in lobby */}No Mercy</span>
+        <span className="pill">🎴 {gameLabel}</span>
         <div className="spacer" />
         <ColorChip color={view.activeColor} />
         {side && (
@@ -129,52 +138,55 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
         </span>
       </div>
 
-      {/* opponents */}
-      <div className="opponents">
-        {opponents.map((p) => (
-          <div key={p.id} className={`opp ${p.id === view.currentPlayerId ? 'turn' : ''} ${p.eliminated ? 'eliminated' : ''} ${p.connected === false ? 'disconnected' : ''}`}>
-            <div className="row gap-8" style={{ alignItems: 'center' }}>
-              <span className="avatar" style={{ width: 26, height: 26, fontSize: 13 }}>{(p.name || '?')[0].toUpperCase()}</span>
-              <b>{p.name}</b>{p.isHost && <span className="pill tag-host" style={{ padding: '1px 6px' }}>H</span>}
+      {/* the play table: opponents around the top, piles in the middle */}
+      <div className="arena-table">
+        {/* opponents (player pods) */}
+        <div className="opponents">
+          {opponents.map((p) => (
+            <div key={p.id} className={`opp ${p.id === view.currentPlayerId ? 'turn' : ''} ${p.eliminated ? 'eliminated' : ''} ${p.connected === false ? 'disconnected' : ''}`}>
+              <div className="row gap-8" style={{ alignItems: 'center' }}>
+                <span className="avatar" style={{ width: 26, height: 26, fontSize: 13 }}>{(p.name || '?')[0].toUpperCase()}</span>
+                <b>{p.name}</b>{p.isHost && <span className="pill tag-host" style={{ padding: '1px 6px' }}>H</span>}
+              </div>
+              {p.connected === false && <span className="conn-badge off">reconnecting…</span>}
+              <div className="mini-cards">
+                {Array.from({ length: Math.min(p.handCount, 12) }).map((_, i) => <span className="mc" key={i} />)}
+              </div>
+              <div className="count">{p.eliminated ? '☠' : p.handCount}</div>
             </div>
-            {p.connected === false && <span className="conn-badge off">reconnecting…</span>}
-            <div className="mini-cards">
-              {Array.from({ length: Math.min(p.handCount, 12) }).map((_, i) => <span className="mc" key={i} />)}
-            </div>
-            <div className="count">{p.eliminated ? '☠' : p.handCount}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* center table */}
-      <div className={`table-center ${flipping ? 'flipping' : ''}`}>
-        <div className="pile">
-          <div className="pile-label">Draw ({view.drawPileCount})</div>
-          <div className="draw-pile" onClick={doDraw} title={myTurn ? 'Draw' : ''}>
-            <div className={`deck-back ${shuffling ? 'shuffling' : ''}`}><div className="oval">UNO</div></div>
-          </div>
+          ))}
         </div>
 
-        <div className="dir-indicator">
-          <div className={`dir-arrow ${view.direction === 1 ? 'cw' : 'ccw'}`}>↻</div>
-          <span>{view.direction === 1 ? 'Clockwise' : 'Counter'}</span>
-        </div>
+        {/* center table */}
+        <div className={`table-center ${flipping ? 'flipping' : ''}`}>
+          <div className="pile">
+            <div className="pile-label">Draw ({view.drawPileCount})</div>
+            <div className="draw-pile" onClick={doDraw} title={myTurn ? 'Draw' : ''}>
+              <div className={`deck-back ${shuffling ? 'shuffling' : ''}`}><div className="oval">UNO</div></div>
+            </div>
+          </div>
 
-        <div className="pile">
-          <div className="pile-label">Discard</div>
-          {view.topCard ? (
-            <Card key={view.topCard.id} card={view.topCard} className="played-pop" />
-          ) : (
-            <div className="deck-back"><div className="oval">—</div></div>
+          <div className="dir-indicator">
+            <div className={`dir-arrow ${view.direction === 1 ? 'cw' : 'ccw'}`}>↻</div>
+            <span>{view.direction === 1 ? 'Clockwise' : 'Counter'}</span>
+          </div>
+
+          <div className="pile">
+            <div className="pile-label">Discard</div>
+            {view.topCard ? (
+              <Card key={view.topCard.id} card={view.topCard} className="played-pop discard-top" />
+            ) : (
+              <div className="deck-back"><div className="oval">—</div></div>
+            )}
+          </div>
+
+          {stack.active && (
+            <div className={`stack-badge ${stackFlash ? 'stack-flash' : ''}`}>
+              <span>DRAW</span><span className="num">{stackDisplay}</span>
+              {view.drawStack.chainActive && <span title="Reverse chain active">⇄</span>}
+            </div>
           )}
         </div>
-
-        {stack.active && (
-          <div className={`stack-badge ${stackFlash ? 'stack-flash' : ''}`}>
-            <span>DRAW</span><span className="num">{stackDisplay}</span>
-            {view.drawStack.chainActive && <span title="Reverse chain active">⇄</span>}
-          </div>
-        )}
       </div>
 
       {/* my hand + controls — hidden entirely once eliminated (spectator) */}
@@ -209,11 +221,11 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
               Say “UNO!”
             </button>
           </div>
-          <div className="hand" style={{ '--ov': `${handOverlap}px` }}>
-            {me.hand && me.hand.map((card) => {
+          <div className="hand fan" style={{ '--ov': `${handOverlap}px` }}>
+            {me.hand && me.hand.map((card, i) => {
               const playable = myTurn && isPlayable(card, view);
               return (
-                <div key={card.id} className={`card-slot ${playable ? 'playable' : 'unplayable'}`}>
+                <div key={card.id} className={`card-slot ${playable ? 'playable' : 'unplayable'}`} style={fanProps(i)}>
                   <Card card={card} onClick={() => playCard(card)} />
                 </div>
               );
@@ -291,4 +303,4 @@ function Confetti() {
     </>
   );
 }
-// EOF GameBoard.js (hand layout)
+// EOF GameBoard.js (arena redesign)
