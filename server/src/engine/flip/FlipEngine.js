@@ -15,25 +15,6 @@ const { buildDeck, shuffle, makeRng } = require('./deck');
 
 const DEFAULT_CONFIG = { recycleThreshold: 50 };
 
-/**
- * FlipEngine — authoritative, server-side ADAMAS UNO Flip.
- *
- * Same interface as NoMercyEngine so rooms.js can use either:
- *   new FlipEngine({ players, config, rng }); start(); applyIntent(pid, intent);
- *   view(pid); state.status; state.winner.  Intents: PLAY_CARD, DRAW, PASS, SAY_UNO.
- *
- * Differences from No Mercy (per ADAMAS_FLIP_SPEC.md):
- *  - Double-sided cards; a global `side` ('light'|'dark'). All playability,
- *    colour and effects use the card's ACTIVE face.
- *  - A Flip card switches the side for the draw pile, discard pile and EVERY
- *    hand at once. Flip cannot be played onto an active draw-stack.
- *  - Win by emptying your hand only (no mercy/elimination).
- *  - Shared "draw one, may play / PASS" rule. Flip additionally lets you draw
- *    voluntarily even when you hold a playable card ("choose not to play").
- *  - Stacking is ascending and single-side (Light: DrawOne 1 / WildDrawTwo 2;
- *    Dark: DrawFive 5 / WildDrawColor 5). Reverse deflection/chain works on
- *    colored draws (DrawOne/DrawFive); wild draws cannot be deflected.
- */
 class FlipEngine {
   constructor({ players = [], config = {}, rng } = {}) {
     this.rng = rng || makeRng((Math.random() * 2 ** 31) | 0);
@@ -44,7 +25,7 @@ class FlipEngine {
         name: p.name,
         isHost: !!p.isHost,
         hand: [],
-        eliminated: false, // always false in Flip; kept for view-shape parity
+        eliminated: false,
         saidUno: false,
       })),
       side: 'light',
@@ -53,15 +34,13 @@ class FlipEngine {
       drawPile: [],
       discardPile: [],
       activeColor: null,
-      drawStack: null, // { total, lastValue, lastWasColoredDraw, chainActive, untilColor }
-      pendingPlay: null, // { idx, cardId }
+      drawStack: null,
+      pendingPlay: null,
       status: 'lobby',
       winner: null,
       log: [],
     };
   }
-
-  // ----- lifecycle ---------------------------------------------------------
 
   start() {
     const s = this.state;
@@ -74,7 +53,6 @@ class FlipEngine {
     for (let r = 0; r < 7; r++) for (const p of s.players) p.hand.push(deck.pop());
     s.side = 'light';
     s.drawPile = deck;
-    // Starting card: flip until the LIGHT active face is a number.
     const skipped = [];
     let top = s.drawPile.pop();
     while (top && this._faceOf(top, 'light').type !== TYPE.NUMBER) {
@@ -94,8 +72,6 @@ class FlipEngine {
     return { ok: true, events: this._drain() };
   }
 
-  // ----- intent entry point ------------------------------------------------
-
   applyIntent(playerId, intent = {}) {
     const s = this.state;
     if (s.status !== 'playing') return this._err('GAME_NOT_ACTIVE');
@@ -105,6 +81,8 @@ class FlipEngine {
     switch (intent.type) {
       case 'PLAY_CARD':
         return this._handlePlay(idx, intent);
+      case 'PLAY_CARDS':
+        return this._handlePlayCards(idx, intent);
       case 'DRAW':
         return this._handleDraw(idx);
       case 'PASS':
@@ -116,8 +94,6 @@ class FlipEngine {
         return this._err('UNKNOWN_INTENT');
     }
   }
-
-  // ----- play --------------------------------------------------------------
 
   _handlePlay(idx, intent) {
     const s = this.state;
@@ -153,7 +129,7 @@ class FlipEngine {
         break;
       case TYPE.REVERSE:
         s.direction *= -1;
-        if (s.players.length === 2) s.current = idx; // 2-player reverse = skip
+        if (s.players.length === 2) s.current = idx;
         else this._advance(1);
         break;
       case TYPE.SKIP_EVERYONE:
@@ -176,16 +152,115 @@ class FlipEngine {
     }
   }
 
+  _multiFaceKey(card) {
+    const f = this._activeFace(card);
+    if (f.type === TYPE.NUMBER) return `num:${f.value}`;
+    if (f.type === TYPE.SKIP || f.type === TYPE.REVERSE || f.type === TYPE.DRAW_ONE || f.type === TYPE.DRAW_FIVE) {
+      return `sym:${f.type}`;
+    }
+    return null;
+  }
+
+  _handlePlayCards(idx, intent) {
+    const s = this.state;
+    const player = s.players[idx];
+    const ids = intent.cardIds;
+    if (!Array.isArray(ids) || ids.length === 0) return this._err('EMPTY_SET');
+    if (ids.length > 14) return this._err('SET_TOO_LARGE');
+
+    const cards = [];
+    const seen = new Set();
+    for (const id of ids) {
+      if (seen.has(id)) return this._err('CARD_NOT_IN_HAND');
+      seen.add(id);
+      const c = player.hand.find((x) => x.id === id);
+      if (!c) return this._err('CARD_NOT_IN_HAND');
+      cards.push(c);
+    }
+
+    if (cards.length === 1) {
+      return this._handlePlay(idx, { type: 'PLAY_CARD', cardId: ids[0], chosenColor: intent.chosenColor });
+    }
+
+    if (s.pendingPlay && s.pendingPlay.idx === idx) return this._err('MUST_PLAY_DRAWN_CARD');
+
+    if (cards.some((c) => isWild(this._activeFace(c)))) return this._err('WILD_IN_SET');
+    const key = this._multiFaceKey(cards[0]);
+    if (!key) return this._err('INELIGIBLE_SET_FACE');
+    if (!cards.every((c) => this._multiFaceKey(c) === key)) return this._err('MIXED_FACES');
+
+    const first = cards[0];
+    const firstFace = this._activeFace(first);
+    if (s.drawStack) {
+      if (!isColoredDraw(firstFace)) return this._err('ILLEGAL_STACK_RESPONSE');
+      if (drawValueOf(firstFace) < s.drawStack.lastValue) return this._err('NON_ASCENDING_DRAW');
+    } else if (!this._isPlayable(first)) {
+      return this._err('ILLEGAL_MOVE');
+    }
+
+    s.pendingPlay = null;
+    for (const card of cards) {
+      this._moveToDiscard(idx, card);
+      this._emit('CARD_PLAYED', { player: player.id, card: this._publicCard(card) });
+    }
+    this._emit('CARDS_PLAYED', { player: player.id, count: cards.length, face: key });
+
+    if (player.hand.length === 0) return this._win(idx);
+
+    this._applyMultiEffect(idx, cards);
+    return { ok: true, events: this._drain() };
+  }
+
+  _applyMultiEffect(idx, cards) {
+    const s = this.state;
+    const k = cards.length;
+    const face = this._activeFace(cards[0]);
+    if (face.type === TYPE.NUMBER) {
+      this._advance(1);
+      return;
+    }
+    if (face.type === TYPE.SKIP) {
+      this._advance(k + 1);
+      return;
+    }
+    if (face.type === TYPE.REVERSE) {
+      const odd = k % 2 === 1;
+      if (s.players.length === 2) {
+        if (odd) s.direction *= -1;
+        s.current = idx;
+        this._emit('TURN_CHANGED', { player: s.players[s.current].id });
+      } else {
+        if (odd) s.direction *= -1;
+        this._advance(1);
+      }
+      return;
+    }
+    if (face.type === TYPE.DRAW_ONE || face.type === TYPE.DRAW_FIVE) {
+      const val = drawValueOf(face);
+      const add = val * k;
+      if (s.drawStack) {
+        s.drawStack.total += add;
+        s.drawStack.lastValue = val;
+        s.drawStack.lastWasColoredDraw = true;
+        s.drawStack.chainActive = false;
+        s.drawStack.untilColor = null;
+      } else {
+        s.drawStack = { total: add, lastValue: val, lastWasColoredDraw: true, chainActive: false, untilColor: null };
+      }
+      s.current = this._nextIndex(idx, s.direction, 1);
+      this._emit('DRAW_STACK_UPDATED', { total: s.drawStack.total, target: s.players[s.current].id });
+      return;
+    }
+    this._advance(1);
+  }
+
   _resolveFlip(idx) {
     const s = this.state;
     s.side = s.side === 'light' ? 'dark' : 'light';
-    // New active colour = the flip card's new active-face colour (flip↔flip).
     s.activeColor = this._activeFace(this._topDiscard()).color;
     this._emit('FLIPPED', { side: s.side, activeColor: s.activeColor });
     this._advance(1);
   }
-
-  // ----- draw stack --------------------------------------------------------
 
   _startDrawStack(idx, card, intent) {
     const s = this.state;
@@ -208,7 +283,6 @@ class FlipEngine {
     const ds = s.drawStack;
     const face = this._activeFace(card);
 
-    // (1) ascending draw card of the same side
     if (isDrawCard(face)) {
       const val = drawValueOf(face);
       if (val < ds.lastValue) return this._err('NON_ASCENDING_DRAW');
@@ -227,7 +301,6 @@ class FlipEngine {
       return { ok: true, events: this._drain() };
     }
 
-    // (2) reverse — deflection (first) or chain (subsequent), colored draws only
     if (isReverse(face)) {
       if (ds.chainActive) {
         // any reverse, colour ignored
@@ -248,11 +321,8 @@ class FlipEngine {
       return { ok: true, events: this._drain() };
     }
 
-    // (3) everything else (Flip, Skip, SkipEveryone, number, plain Wild) is illegal
     return this._err('ILLEGAL_STACK_RESPONSE');
   }
-
-  // ----- draw / pass -------------------------------------------------------
 
   _handleDraw(idx) {
     const s = this.state;
@@ -262,8 +332,6 @@ class FlipEngine {
       const ds = s.drawStack;
       const drawn = this._drawCards(ds.total);
       player.hand.push(...drawn);
-      // Wild Draw Color: if the stack's last card was a draw-until-colour, keep
-      // drawing past the numeric total until that colour appears on the active face.
       if (ds.untilColor) {
         let guard = 0;
         while (guard++ < 500) {
@@ -276,15 +344,13 @@ class FlipEngine {
       this._emit('PENALTY_TAKEN', { player: player.id, count: player.hand.length });
       s.drawStack = null;
       s.pendingPlay = null;
-      s.current = this._nextIndex(idx, s.direction, 1); // penalty = skip
+      s.current = this._nextIndex(idx, s.direction, 1);
       this._emit('TURN_CHANGED', { player: s.players[s.current].id, viaPenalty: true });
       return { ok: true, events: this._drain() };
     }
 
     if (s.pendingPlay && s.pendingPlay.idx === idx) return this._err('MUST_PLAY_DRAWN_CARD');
 
-    // Voluntary draw of EXACTLY ONE card (allowed even if you can play — you may
-    // "choose not to play"). If playable you may play it or PASS; else turn ends.
     const drawn = this._drawCards(1);
     if (!drawn.length) return this._err('NO_CARDS_TO_DRAW');
     const card = drawn[0];
@@ -311,8 +377,6 @@ class FlipEngine {
     this._emit('TURN_CHANGED', { player: s.players[s.current].id });
     return { ok: true, events: this._drain() };
   }
-
-  // ----- helpers -----------------------------------------------------------
 
   _faceOf(card, side) {
     return card[side];
@@ -373,7 +437,7 @@ class FlipEngine {
   _recycle() {
     const s = this.state;
     const top = s.discardPile.pop() || null;
-    const pool = s.discardPile; // cards keep their double-sided faces untouched
+    const pool = s.discardPile;
     s.discardPile = top ? [top] : [];
     if (pool.length === 0) return;
     s.drawPile = s.drawPile.concat(shuffle(pool, this.rng));
@@ -458,7 +522,6 @@ class FlipEngine {
         eliminated: false,
         handCount: p.hand.length,
         isYou: p.id === playerId,
-        // own hand exposes the ACTIVE face for the current side
         hand: p.id === playerId ? p.hand.map((c) => this._publicCard(c)) : undefined,
       })),
     };

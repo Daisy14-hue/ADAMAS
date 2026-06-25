@@ -15,27 +15,7 @@ const { buildDeck, shuffle, makeRng } = require('./deck');
 
 const DEFAULT_CONFIG = { eliminationLimit: 25, recycleThreshold: 50 };
 
-/**
- * NoMercyEngine — authoritative, server-side UNO No Mercy (ADAMAS variant).
- *
- * Design:
- *  - Pure of any I/O. Clients send INTENTS; `applyIntent` validates against the
- *    rules, mutates internal state, and returns { ok, error?, events }.
- *  - All state lives on `this.state`. Tests may construct an engine, call
- *    `start()` OR hand-craft a scenario by writing to `this.state` directly,
- *    then drive it through `applyIntent`.
- *  - Deterministic when constructed with a seeded rng (see deck.makeRng).
- *
- * Errors are returned as { ok:false, error:CODE } — never thrown — so the
- * realtime layer can reject an illegal intent and leave state untouched.
- */
 class NoMercyEngine {
-  /**
-   * @param {Object} opts
-   * @param {Array<{id:string,name:string,isHost?:boolean}>} opts.players
-   * @param {Object} [opts.config] { eliminationLimit, recycleThreshold }
-   * @param {Function} [opts.rng] float in [0,1); inject for determinism
-   */
   constructor({ players = [], config = {}, rng } = {}) {
     this.rng = rng || makeRng((Math.random() * 2 ** 31) | 0);
     this.state = {
@@ -48,23 +28,20 @@ class NoMercyEngine {
         eliminated: false,
         saidUno: false,
       })),
-      direction: 1, // 1 = clockwise, -1 = counter-clockwise
-      current: 0, // index into players whose decision is pending
+      direction: 1,
+      current: 0,
       drawPile: [],
       discardPile: [],
-      setAside: [], // eliminated players' cards, held until next reshuffle
+      setAside: [],
       activeColor: null,
-      drawStack: null, // null when inactive; see startDrawStack for shape
-      pendingPlay: null, // { idx, cardId } — drawn playable card that must be played
-      status: 'lobby', // 'lobby' | 'playing' | 'finished'
+      drawStack: null,
+      pendingPlay: null,
+      status: 'lobby',
       winner: null,
       log: [],
     };
   }
 
-  // ----- lifecycle ---------------------------------------------------------
-
-  /** Build deck, deal 7 each, flip a starting number card, set first player. */
   start() {
     const s = this.state;
     if (s.players.length < 2) {
@@ -76,24 +53,21 @@ class NoMercyEngine {
       p.eliminated = false;
       p.saidUno = false;
     }
-    // Deal 7 each.
     for (let r = 0; r < 7; r++) {
       for (const p of s.players) p.hand.push(deck.pop());
     }
     s.drawPile = deck;
-    // Flip a starting card; if it's an action/wild, set it aside at the bottom
-    // and flip again until a plain number shows (guaranteed: 76 numbers exist).
     const skipped = [];
     let top = s.drawPile.pop();
     while (top && top.type !== TYPE.NUMBER) {
       skipped.push(top);
       top = s.drawPile.pop();
     }
-    s.drawPile = skipped.concat(s.drawPile); // skipped cards go to the bottom
+    s.drawPile = skipped.concat(s.drawPile);
     s.discardPile = [top];
     s.activeColor = top.color;
     s.direction = 1;
-    s.current = this._nextIndex(0, 1, 1); // player to the left of dealer (idx 0)
+    s.current = this._nextIndex(0, 1, 1);
     s.drawStack = null;
     s.pendingPlay = null;
     s.status = 'playing';
@@ -101,8 +75,6 @@ class NoMercyEngine {
     this._emit('MATCH_STARTED', { firstPlayer: s.players[s.current].id });
     return { ok: true, events: this._drain() };
   }
-
-  // ----- intent entry point ------------------------------------------------
 
   applyIntent(playerId, intent = {}) {
     const s = this.state;
@@ -115,6 +87,8 @@ class NoMercyEngine {
     switch (intent.type) {
       case 'PLAY_CARD':
         return this._handlePlay(idx, intent);
+      case 'PLAY_CARDS':
+        return this._handlePlayCards(idx, intent);
       case 'DRAW':
         return this._handleDraw(idx);
       case 'PASS':
@@ -127,26 +101,20 @@ class NoMercyEngine {
     }
   }
 
-  // ----- play a card -------------------------------------------------------
-
   _handlePlay(idx, intent) {
     const s = this.state;
     const player = s.players[idx];
     const card = player.hand.find((c) => c.id === intent.cardId);
     if (!card) return this._err('CARD_NOT_IN_HAND');
 
-    // If a drawn playable card is pending, only that card may be played.
     if (s.pendingPlay && s.pendingPlay.idx === idx) {
       if (card.id !== s.pendingPlay.cardId) return this._err('MUST_PLAY_DRAWN_CARD');
     }
 
-    // Active draw stack changes the legal-response set entirely.
     if (s.drawStack) return this._handleStackResponse(idx, card, intent);
 
-    // Normal play.
     if (!this._isPlayable(card)) return this._err('ILLEGAL_MOVE');
 
-    // Validate color choice for wilds that require one.
     if (this._needsColor(card)) {
       if (!COLORS.includes(intent.chosenColor)) return this._err('COLOR_REQUIRED');
     }
@@ -158,7 +126,6 @@ class NoMercyEngine {
     this._moveToDiscard(idx, card, intent.chosenColor);
     this._emit('CARD_PLAYED', { player: player.id, card: this._publicCard(card) });
 
-    // Win by emptying hand (single card out — discardAll handles its own case).
     if (player.hand.length === 0) return this._win(idx);
 
     this._applyEffect(idx, card, intent);
@@ -172,12 +139,11 @@ class NoMercyEngine {
         this._advance(1);
         break;
       case TYPE.SKIP:
-        this._advance(2); // next player loses their turn
+        this._advance(2);
         break;
       case TYPE.REVERSE: {
         s.direction *= -1;
         if (this._activeCount() === 2) {
-          // 2-player reverse acts as a skip → current player goes again.
           s.current = idx;
         } else {
           this._advance(1);
@@ -185,7 +151,7 @@ class NoMercyEngine {
         break;
       }
       case TYPE.SKIP_EVERYONE:
-        s.current = idx; // everyone else skipped; play again
+        s.current = idx;
         break;
       case TYPE.DISCARD_ALL:
         this._resolveDiscardAll(idx, card);
@@ -202,7 +168,7 @@ class NoMercyEngine {
         this._startDrawStack(idx, card);
         break;
       case TYPE.WILD_REVERSE_DRAW4:
-        s.direction *= -1; // treated as a Draw card that reverses (4.9)
+        s.direction *= -1;
         this._startDrawStack(idx, card);
         break;
       case TYPE.WILD_ROULETTE:
@@ -213,13 +179,108 @@ class NoMercyEngine {
     }
   }
 
+  _multiFaceKey(card) {
+    if (card.type === TYPE.NUMBER) return `num:${card.value}`;
+    if (card.type === TYPE.SKIP || card.type === TYPE.REVERSE || card.type === TYPE.DRAW2) return `sym:${card.type}`;
+    return null;
+  }
+
+  _handlePlayCards(idx, intent) {
+    const s = this.state;
+    const player = s.players[idx];
+    const ids = intent.cardIds;
+    if (!Array.isArray(ids) || ids.length === 0) return this._err('EMPTY_SET');
+    if (ids.length > 14) return this._err('SET_TOO_LARGE');
+
+    const cards = [];
+    const seen = new Set();
+    for (const id of ids) {
+      if (seen.has(id)) return this._err('CARD_NOT_IN_HAND');
+      seen.add(id);
+      const c = player.hand.find((x) => x.id === id);
+      if (!c) return this._err('CARD_NOT_IN_HAND');
+      cards.push(c);
+    }
+
+    if (cards.length === 1) {
+      return this._handlePlay(idx, { type: 'PLAY_CARD', cardId: ids[0], chosenColor: intent.chosenColor, rouletteColor: intent.rouletteColor });
+    }
+
+    if (s.pendingPlay && s.pendingPlay.idx === idx) return this._err('MUST_PLAY_DRAWN_CARD');
+
+    if (cards.some((c) => isWild(c))) return this._err('WILD_IN_SET');
+    const key = this._multiFaceKey(cards[0]);
+    if (!key) return this._err('INELIGIBLE_SET_FACE');
+    if (!cards.every((c) => this._multiFaceKey(c) === key)) return this._err('MIXED_FACES');
+
+    const first = cards[0];
+    if (s.drawStack) {
+      if (first.type !== TYPE.DRAW2) return this._err('ILLEGAL_STACK_RESPONSE');
+      if (drawValueOf(first) < s.drawStack.lastValue) return this._err('NON_ASCENDING_DRAW');
+    } else if (!this._isPlayable(first)) {
+      return this._err('ILLEGAL_MOVE');
+    }
+
+    s.pendingPlay = null;
+    for (const card of cards) {
+      this._moveToDiscard(idx, card);
+      this._emit('CARD_PLAYED', { player: player.id, card: this._publicCard(card) });
+    }
+    this._emit('CARDS_PLAYED', { player: player.id, count: cards.length, face: key });
+
+    if (player.hand.length === 0) return this._win(idx);
+
+    this._applyMultiEffect(idx, cards);
+    return { ok: true, events: this._drain() };
+  }
+
+  _applyMultiEffect(idx, cards) {
+    const s = this.state;
+    const k = cards.length;
+    const type = cards[0].type;
+    if (type === TYPE.NUMBER) {
+      this._advance(1);
+      return;
+    }
+    if (type === TYPE.SKIP) {
+      this._advance(k + 1);
+      return;
+    }
+    if (type === TYPE.REVERSE) {
+      const odd = k % 2 === 1;
+      if (this._activeCount() === 2) {
+        if (odd) s.direction *= -1;
+        s.current = idx;
+        this._emit('TURN_CHANGED', { player: s.players[s.current].id });
+      } else {
+        if (odd) s.direction *= -1;
+        this._advance(1);
+      }
+      return;
+    }
+    if (type === TYPE.DRAW2) {
+      const add = drawValueOf(cards[0]) * k;
+      if (s.drawStack) {
+        s.drawStack.total += add;
+        s.drawStack.lastValue = drawValueOf(cards[0]);
+        s.drawStack.lastWasColoredDraw = true;
+        s.drawStack.chainActive = false;
+      } else {
+        s.drawStack = { total: add, lastValue: drawValueOf(cards[0]), lastWasColoredDraw: true, chainActive: false };
+      }
+      s.current = this._nextIndex(idx, s.direction, 1);
+      this._emit('DRAW_STACK_UPDATED', { total: s.drawStack.total, target: s.players[s.current].id });
+      return;
+    }
+    this._advance(1);
+  }
+
   _resolveDiscardAll(idx, card) {
     const s = this.state;
     const player = s.players[idx];
     const color = card.color;
     const matching = player.hand.filter((c) => c.color === color);
     player.hand = player.hand.filter((c) => c.color !== color);
-    // Extra cards go UNDER the Discard All card (which is the current top).
     const top = s.discardPile.pop();
     s.discardPile.push(...matching, top);
     this._emit('DISCARD_ALL', { player: player.id, color, count: matching.length });
@@ -235,14 +296,10 @@ class NoMercyEngine {
     const s = this.state;
     const targetIdx = this._nextIndex(idx, s.direction, 1);
     const target = s.players[targetIdx];
-    // Target reveals cards one at a time until one matches the called color.
-    // Wild cards do NOT count — keep drawing through them.
-    // (ADAMAS 4.5: color is called by the player who PLAYED the roulette.)
-    // Safety bound so a pathological empty deck can't loop forever.
     let guard = 0;
     while (guard++ < 1000) {
       const drawn = this._drawCards(1);
-      if (drawn.length === 0) break; // no cards anywhere
+      if (drawn.length === 0) break;
       const c = drawn[0];
       target.hand.push(c);
       if (c.color === rouletteColor) break;
@@ -253,11 +310,9 @@ class NoMercyEngine {
       // target eliminated; turn advances past them anyway
     }
     if (s.status === 'finished') return;
-    s.current = this._nextIndex(targetIdx, s.direction, 1); // target loses their turn
+    s.current = this._nextIndex(targetIdx, s.direction, 1);
     this._emit('TURN_CHANGED', { player: s.players[s.current].id });
   }
-
-  // ----- draw stack (house rules 4.6–4.9) ----------------------------------
 
   _startDrawStack(idx, card) {
     const s = this.state;
@@ -265,10 +320,10 @@ class NoMercyEngine {
     s.drawStack = {
       total: val,
       lastValue: val,
-      lastWasColoredDraw: isColoredDraw(card), // only Draw 2 is deflectable
+      lastWasColoredDraw: isColoredDraw(card),
       chainActive: false,
     };
-    s.current = this._nextIndex(idx, s.direction, 1); // target responds next
+    s.current = this._nextIndex(idx, s.direction, 1);
     this._emit('DRAW_STACK_UPDATED', {
       total: s.drawStack.total,
       target: s.players[s.current].id,
@@ -280,7 +335,6 @@ class NoMercyEngine {
     const player = s.players[idx];
     const ds = s.drawStack;
 
-    // (1) Continue the stack with an ascending Draw card.
     if (isDrawCard(card)) {
       const val = drawValueOf(card);
       if (val < ds.lastValue) return this._err('NON_ASCENDING_DRAW');
@@ -292,8 +346,8 @@ class NoMercyEngine {
       this._moveToDiscard(idx, card, intent.chosenColor);
       ds.total += val;
       ds.lastValue = val;
-      ds.lastWasColoredDraw = isColoredDraw(card); // becomes false once a wild draw lands
-      ds.chainActive = false; // stacking a draw card breaks any reverse-chain context
+      ds.lastWasColoredDraw = isColoredDraw(card);
+      ds.chainActive = false;
       this._emit('CARD_PLAYED', { player: player.id, card: this._publicCard(card) });
       if (player.hand.length === 0) return this._win(idx);
       s.current = this._nextIndex(idx, s.direction, 1);
@@ -301,19 +355,14 @@ class NoMercyEngine {
       return { ok: true, events: this._drain() };
     }
 
-    // (2) Reverse — deflection (first) or chain (subsequent).
     if (isReverse(card)) {
       if (ds.chainActive) {
         // Chain active: any Reverse, color ignored (4.8).
       } else {
-        // First deflection: only against a colored Draw 2, and the Reverse must
-        // match the active color (4.6).
         if (!ds.lastWasColoredDraw) return this._err('CANNOT_DEFLECT_WILD_DRAW');
         if (card.color !== s.activeColor) return this._err('REVERSE_MUST_MATCH_COLOR');
       }
       s.pendingPlay = null;
-      // Reverse is consumed; activeColor stays the underlying Draw 2 color so the
-      // stack remains a colored Draw 2 throughout the duel.
       player.hand = player.hand.filter((c) => c.id !== card.id);
       s.discardPile.push(card);
       s.direction *= -1;
@@ -321,24 +370,18 @@ class NoMercyEngine {
       this._emit('CARD_PLAYED', { player: player.id, card: this._publicCard(card) });
       this._emit('REVERSE_DEFLECT', { player: player.id, total: ds.total });
       if (player.hand.length === 0) return this._win(idx);
-      // Penalty redirects to the immediate neighbor in the NEW direction.
       s.current = this._nextIndex(idx, s.direction, 1);
       this._emit('DRAW_STACK_UPDATED', { total: ds.total, target: s.players[s.current].id });
       return { ok: true, events: this._drain() };
     }
 
-    // (3) Anything else (number, plain wild, skipEveryone, discardAll, roulette)
-    // is NOT a legal response to a live stack (4.7).
     return this._err('ILLEGAL_STACK_RESPONSE');
   }
-
-  // ----- draw / take penalty ----------------------------------------------
 
   _handleDraw(idx) {
     const s = this.state;
     const player = s.players[idx];
 
-    // Taking the accumulated penalty (uses up the turn → player is skipped).
     if (s.drawStack) {
       const total = s.drawStack.total;
       const drawn = this._drawCards(total);
@@ -348,13 +391,11 @@ class NoMercyEngine {
       s.pendingPlay = null;
       const eliminated = this._checkElimination(idx);
       if (s.status === 'finished') return { ok: true, events: this._drain() };
-      // Penalty draw is a SKIP: play moves to the next player.
       s.current = this._nextIndex(idx, s.direction, 1);
       this._emit('TURN_CHANGED', { player: s.players[s.current].id, viaPenalty: true, eliminated });
       return { ok: true, events: this._drain() };
     }
 
-    // Voluntary draw-to-match (4.4 step 5). Only allowed when you cannot play.
     if (s.pendingPlay && s.pendingPlay.idx === idx) return this._err('MUST_PLAY_DRAWN_CARD');
     if (this._hasPlayableCard(idx)) return this._err('YOU_HAVE_A_PLAYABLE_CARD');
 
@@ -372,24 +413,16 @@ class NoMercyEngine {
     }
 
     if (this._isPlayable(card)) {
-      // Shared draw rule: exactly one card. If it is playable the player MAY
-      // play it (only this drawn card) OR end their turn with PASS, keeping it.
       s.pendingPlay = { idx, cardId: card.id };
       this._emit('DREW_PLAYABLE', { player: player.id });
       return { ok: true, events: this._drain() };
     }
-    // Not playable → the turn ends automatically (no "keep drawing").
     this._emit('DREW_UNPLAYABLE', { player: player.id });
     s.current = this._nextIndex(idx, s.direction, 1);
     this._emit('TURN_CHANGED', { player: s.players[s.current].id });
     return { ok: true, events: this._drain() };
   }
 
-  /**
-   * PASS — end the turn after a voluntary draw produced a PLAYABLE card the
-   * player chooses not to play (they keep it). Only legal in that exact spot; it
-   * is NOT a generic "skip my turn" and cannot duck an active draw-stack.
-   */
   _handlePass(idx) {
     const s = this.state;
     if (s.drawStack) return this._err('CANNOT_PASS_DURING_STACK');
@@ -400,8 +433,6 @@ class NoMercyEngine {
     this._emit('TURN_CHANGED', { player: s.players[s.current].id });
     return { ok: true, events: this._drain() };
   }
-
-  // ----- helpers -----------------------------------------------------------
 
   _moveToDiscard(idx, card, chosenColor) {
     const s = this.state;
@@ -419,7 +450,7 @@ class NoMercyEngine {
 
   _isPlayable(card) {
     const s = this.state;
-    if (isWild(card)) return true; // wilds always playable on a normal turn
+    if (isWild(card)) return true;
     if (card.color === s.activeColor) return true;
     const top = this._topDiscard();
     if (!top) return true;
@@ -446,7 +477,7 @@ class NoMercyEngine {
     const out = [];
     for (let i = 0; i < n; i++) {
       if (s.drawPile.length === 0) this._recycle();
-      if (s.drawPile.length === 0) break; // genuinely out of cards
+      if (s.drawPile.length === 0) break;
       out.push(s.drawPile.pop());
     }
     return out;
@@ -455,7 +486,7 @@ class NoMercyEngine {
   _recycle() {
     const s = this.state;
     const top = s.discardPile.pop() || null;
-    const pool = s.discardPile.concat(s.setAside); // eliminated cards re-enter here
+    const pool = s.discardPile.concat(s.setAside);
     s.setAside = [];
     s.discardPile = top ? [top] : [];
     if (pool.length === 0) return;
@@ -511,7 +542,6 @@ class NoMercyEngine {
     return this.state.players.findIndex((p) => p.id === playerId);
   }
 
-  /** Index `steps` non-eliminated seats away from `fromIdx` in direction `dir`. */
   _nextIndex(fromIdx, dir = this.state.direction, steps = 1) {
     const s = this.state;
     const n = s.players.length;
@@ -530,8 +560,6 @@ class NoMercyEngine {
     s.current = this._nextIndex(s.current, s.direction, steps);
     this._emit('TURN_CHANGED', { player: s.players[s.current].id });
   }
-
-  // ----- views & events ----------------------------------------------------
 
   _publicCard(card) {
     return {
@@ -556,7 +584,6 @@ class NoMercyEngine {
     return { ok: false, error: code, events: [] };
   }
 
-  /** Redacted view for one player (own hand visible; others as counts). */
   view(playerId) {
     const s = this.state;
     return {
@@ -585,7 +612,6 @@ class NoMercyEngine {
     };
   }
 
-  /** Spectator/public view (no hands). */
   publicState() {
     const v = this.view(null);
     v.players = v.players.map(({ hand, isYou, ...rest }) => rest);

@@ -84,14 +84,67 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
     prevSide.current = side;
   }, [side]);
 
+  // ---- multi-card (same-face) selection -----------------------------------
+  // A set's "face": same number, or same colored power symbol. Wilds excluded.
+  const MULTI_SYMS = new Set(['skip', 'reverse', 'draw2', 'drawOne', 'drawFive']);
+  const isWildType = (c) => typeof c.type === 'string' && c.type.startsWith('wild');
+  const faceKey = (c) => {
+    if (!c || isWildType(c)) return null;
+    if (c.type === 'number') return `num:${c.value}`;
+    if (MULTI_SYMS.has(c.type)) return `sym:${c.type}`;
+    return null;
+  };
+  const [selected, setSelected] = useState([]); // ordered card ids for a set
+
+  // Keep the selection valid as the view changes (drop played cards / off-turn).
+  useEffect(() => {
+    setSelected((sel) => {
+      if (!myTurn || !me.hand) return sel.length ? [] : sel;
+      const pruned = sel.filter((id) => me.hand.some((c) => c.id === id));
+      return pruned.length === sel.length ? sel : pruned;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  // Hard reset any half-built set the moment it stops being my turn.
+  useEffect(() => {
+    if (!myTurn && selected.length) setSelected([]);
+  }, [myTurn]);
+  const setFaceKey = selected.length ? faceKey(me.hand.find((c) => c.id === selected[0])) : null;
+
   const playCard = (card) => {
     if (!myTurn) return;
+    // While a set is being built, taps add/remove matching cards.
+    if (selected.length) {
+      if (selected.includes(card.id)) { setSelected((s) => s.filter((id) => id !== card.id)); return; }
+      if (!isWildType(card) && faceKey(card) === setFaceKey) setSelected((s) => [...s, card.id]);
+      return;
+    }
     if (!isPlayable(card, view)) return;
     if (card.type === 'wildRoulette') { setPicker({ mode: 'roulette', card }); return; }
     if (needsColor(card)) { setPicker({ mode: 'wild', card }); return; }
+    // If this legal card has same-face siblings, start a multi-select instead of
+    // playing immediately (single play still happens for unique faces).
+    const key = faceKey(card);
+    if (key && me.hand.some((c) => c.id !== card.id && faceKey(c) === key)) {
+      setSelected([card.id]);
+      return;
+    }
     launchFly(card);
     onIntent({ type: 'PLAY_CARD', cardId: card.id });
   };
+
+  const confirmSet = () => {
+    const ids = selected;
+    if (!ids.length) return;
+    const cards = ids.map((id) => me.hand.find((c) => c.id === id)).filter(Boolean);
+    setSelected([]);
+    if (!cards.length) return;
+    launchFly(cards[cards.length - 1]);
+    if (cards.length === 1) onIntent({ type: 'PLAY_CARD', cardId: ids[0] });
+    else onIntent({ type: 'PLAY_CARDS', cardIds: ids });
+  };
+  const cancelSet = () => setSelected([]);
 
   const chooseColor = (color) => {
     const { mode, card } = picker;
@@ -203,29 +256,42 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
         </div>
       ) : (
         <div className="hand-wrap">
-          <div className="controls">
-            {view.mustSpin && (
-              <button className="btn primary spin-btn" onClick={() => onIntent({ type: 'SPIN' })} title="Forced — spin the wheel">
-                🎡 Spin the Wheel
+          {myTurn && selected.length > 0 ? (
+            <div className="controls set-bar">
+              <span className="set-count">🃏 Set: {selected.length} card{selected.length > 1 ? 's' : ''}</span>
+              <button className="btn primary" onClick={confirmSet}>Play {selected.length} card{selected.length > 1 ? 's' : ''}</button>
+              <button className="btn ghost" onClick={cancelSet}>Cancel</button>
+              <span className="muted set-hint">tap matching cards to add · tap a selected card to remove</span>
+            </div>
+          ) : (
+            <div className="controls">
+              {view.mustSpin && (
+                <button className="btn primary spin-btn" onClick={() => onIntent({ type: 'SPIN' })} title="Forced — spin the wheel">
+                  🎡 Spin the Wheel
+                </button>
+              )}
+              <button className="btn" disabled={!myTurn || view.mustSpin} onClick={doDraw}>
+                {stack.active ? `Take penalty (+${stack.total})` : 'Draw card'}
               </button>
-            )}
-            <button className="btn" disabled={!myTurn || view.mustSpin} onClick={doDraw}>
-              {stack.active ? `Take penalty (+${stack.total})` : 'Draw card'}
-            </button>
-            {view.canPass && (
-              <button className="btn primary" onClick={() => onIntent({ type: 'PASS' })} title="Keep the drawn card and end your turn">
-                Pass ↪
+              {view.canPass && (
+                <button className="btn primary" onClick={() => onIntent({ type: 'PASS' })} title="Keep the drawn card and end your turn">
+                  Pass ↪
+                </button>
+              )}
+              <button className={`btn ${me.handCount <= 2 ? 'accent2' : 'ghost'}`} onClick={sayUno} disabled={view.status !== 'playing'}>
+                Say “UNO!”
               </button>
-            )}
-            <button className={`btn ${me.handCount <= 2 ? 'accent2' : 'ghost'}`} onClick={sayUno} disabled={view.status !== 'playing'}>
-              Say “UNO!”
-            </button>
-          </div>
+            </div>
+          )}
           <div className="hand fan" style={{ '--ov': `${handOverlap}px` }}>
             {me.hand && me.hand.map((card, i) => {
               const playable = myTurn && isPlayable(card, view);
+              const inSet = selected.includes(card.id);
+              const addable = selected.length > 0 && !inSet && !isWildType(card) && faceKey(card) === setFaceKey;
+              const order = inSet ? selected.indexOf(card.id) + 1 : null;
               return (
-                <div key={card.id} className={`card-slot ${playable ? 'playable' : 'unplayable'}`} style={fanProps(i)}>
+                <div key={card.id} className={`card-slot ${playable ? 'playable' : 'unplayable'} ${inSet ? 'sel' : ''} ${addable ? 'addable' : ''}`} style={fanProps(i)}>
+                  {inSet && <span className="set-order">{order}</span>}
                   <Card card={card} onClick={() => playCard(card)} />
                 </div>
               );
@@ -303,4 +369,4 @@ function Confetti() {
     </>
   );
 }
-// EOF GameBoard.js (arena redesign)
+// EOF GameBoard.js (multi-card play)

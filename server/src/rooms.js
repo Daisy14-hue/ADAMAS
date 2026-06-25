@@ -8,22 +8,6 @@ const { MonopolyEngine } = require('./engine/monopoly');
 
 const GAME_TYPES = new Set(['noMercy', 'flip', 'spin', 'monopoly']);
 
-/**
- * In-memory room/lobby manager for ADAMAS Phase 1.
- *
- * No database — rooms live only in process memory and vanish on restart.
- *
- * IDENTITY MODEL (reconnect support):
- *   Each player has a stable `pid` (a crypto.randomUUID) that is their identity
- *   for the whole match — this is what the NoMercy engine sees as the player id.
- *   The live transport is tracked separately as `socketId`, which changes every
- *   time the player (re)connects. A disconnect does NOT delete the player; the
- *   socket layer marks them `connected: false` and starts a grace timer. A
- *   reconnect re-attaches a fresh socketId to the same `pid`.
- *
- * Player shape: { pid, socketId, name, isHost, connected, disconnectedAt }
- */
-
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no easily-confused chars
 const CODE_LENGTH = 4;
 const MAX_PLAYERS = 10;
@@ -42,7 +26,7 @@ function clampInt(v, min, max, fallback) {
 
 // ---- defensive guard rails (NOT game rules) ------------------------------
 const VALID_COLORS = new Set(['red', 'yellow', 'green', 'blue', 'pink', 'teal', 'orange', 'purple']);
-const KNOWN_INTENTS = new Set(['PLAY_CARD', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD', 'BUILD_HOUSE', 'SELL_HOUSE',
+const KNOWN_INTENTS = new Set(['PLAY_CARD', 'PLAY_CARDS', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD', 'BUILD_HOUSE', 'SELL_HOUSE',
   'MORTGAGE', 'UNMORTGAGE', 'PROPOSE_TRADE', 'ACCEPT_TRADE', 'DECLINE_TRADE', 'CANCEL_TRADE',
   'AUCTION_BID', 'AUCTION_PASS', 'SETTLE_DEBT', 'DECLARE_BANKRUPTCY',
   'CALL_END_GAME', 'AGREE_END', 'DECLINE_END']);
@@ -67,6 +51,11 @@ function validateIntent(intent) {
       if (!isShortStr(intent.cardId)) return false;
       if (intent.chosenColor !== undefined && !isColorStr(intent.chosenColor)) return false;
       if (intent.rouletteColor !== undefined && !isColorStr(intent.rouletteColor)) return false;
+      return true;
+    case 'PLAY_CARDS': // UNO multi-card (same-face) play, No Mercy + Flip
+      if (!Array.isArray(intent.cardIds) || intent.cardIds.length < 1 || intent.cardIds.length > 14) return false;
+      if (!intent.cardIds.every(isShortStr)) return false;
+      if (intent.chosenColor !== undefined && !isColorStr(intent.chosenColor)) return false;
       return true;
     case 'SPIN_CHOICE':
       if (intent.cardId !== undefined && !isShortStr(intent.cardId)) return false;
@@ -160,12 +149,6 @@ class RoomManager {
     return { room, player };
   }
 
-  /**
-   * Join a room, or RECONNECT if a known `pid` is supplied.
-   * - With a `pid` that already exists in the room → reattach the new socketId
-   *   to the existing seat (works in lobby AND mid-match). No duplicate seat.
-   * - Otherwise a brand-new player joins (only allowed while in 'lobby').
-   */
   joinRoom(code, name, socketId, pid) {
     const safePid = pid != null ? String(pid) : undefined;
     const room = this.rooms.get(String(code || '').toUpperCase().trim());
@@ -182,11 +165,10 @@ class RoomManager {
       }
     }
 
-    // New player from here on.
     if (room.status !== 'lobby') return { error: 'MATCH_ALREADY_STARTED' };
     if (room.players.length >= MAX_PLAYERS) return { error: 'ROOM_FULL' };
     const player = this._addPlayer(room, name, socketId, randomUUID());
-    return { room, player, reconnected: false };  // (safePid was absent/unknown)
+    return { room, player, reconnected: false };
   }
 
   _addPlayer(room, name, socketId, pid) {
@@ -202,7 +184,6 @@ class RoomManager {
     return player;
   }
 
-  /** Mark a player as disconnected without removing them (grace period). */
   markDisconnected(code, pid) {
     const room = this.rooms.get(code);
     if (!room) return { room: null, player: null };
@@ -253,13 +234,11 @@ class RoomManager {
     const room = this.rooms.get(code);
     if (!room) return { error: 'ROOM_NOT_FOUND' };
     if (room.status !== 'playing' || !room.engine) return { error: 'GAME_NOT_ACTIVE' };
-    // Guard rail: reject malformed intents before they ever reach the engine.
     if (!validateIntent(intent)) return { error: 'BAD_INTENT' };
     let res;
     try {
       res = room.engine.applyIntent(pid, intent);
     } catch (err) {
-      // A bug or unexpected state must NOT crash the room — degrade gracefully.
       // eslint-disable-next-line no-console
       console.error('[ADAMAS] engine.applyIntent threw for room', code, '-', err && err.stack ? err.stack : err);
       return { error: 'ENGINE_ERROR' };
@@ -269,18 +248,6 @@ class RoomManager {
     return { room, result: res };
   }
 
-  /**
-   * Permanently remove a player (grace timer expired, or an explicit leave).
-   * Returns { room, removed, roomClosed, endedMatch }.
-   *
-   * ENGINE NOTE: the NoMercy rules engine has no "remove a seat mid-match"
-   * operation — its turn pointer is an index into a fixed players array, so
-   * splicing a player out would corrupt turn order. Rather than silently change
-   * engine rules (and break the 43-test engine suite), we choose: if a player is
-   * removed while status === 'playing', the MATCH ENDS (endedMatch = true). This
-   * only happens AFTER the grace period, so a quick reconnect never triggers it.
-   * In 'lobby' the player is simply dropped and the lobby continues.
-   */
   removePlayer(code, pid) {
     const room = this.rooms.get(code);
     if (!room) return { room: null, removed: null, roomClosed: false, endedMatch: false };
@@ -294,7 +261,6 @@ class RoomManager {
       endedMatch = true;
     }
 
-    // Reassign host (by pid) if the host left and players remain.
     if (room.hostId === pid && room.players.length > 0) {
       room.hostId = room.players[0].pid;
       room.players[0].isHost = true;
@@ -329,10 +295,6 @@ class RoomManager {
     };
   }
 
-  /**
-   * Per-player game view (engine.view by pid) with each player's `connected`
-   * flag injected from room state (the engine doesn't track connectivity).
-   */
   gameView(room, pid) {
     if (!room.engine) return null;
     const view = room.engine.view(pid);
