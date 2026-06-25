@@ -31,6 +31,8 @@ function useCountUp(target, ms = 260) {
   return val;
 }
 
+const COLOR_HEX = { red: '#d72600', yellow: '#f0b000', green: '#2ea02e', blue: '#0072ce', pink: '#e85aa8', teal: '#27b3b0', orange: '#e8893a', purple: '#8b5cf6' };
+
 export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const me = view.players.find((p) => p.isYou) || { hand: [] };
   const opponents = view.players.filter((p) => !p.isYou);
@@ -41,6 +43,8 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const amSpectator = me.eliminated === true; // eliminated → watch-only spectator mode
   // Flip exposes `side`; No Mercy doesn't. Use that to label correctly (no hardcode).
   const gameLabel = side !== undefined ? 'UNO Flip' : 'UNO No Mercy';
+  // Wild Roulette: while set, I'm the victim and may only press DRAW until [color].
+  const rouletteColor = view.mustDrawRoulette ? view.mustDrawRoulette.color : null;
 
   const [picker, setPicker] = useState(null); // { mode:'wild'|'roulette', card }
   const [shuffling, setShuffling] = useState(false);
@@ -114,6 +118,7 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
 
   const playCard = (card) => {
     if (!myTurn) return;
+    if (rouletteColor) return; // roulette: only DRAW is allowed
     // While a set is being built, taps add/remove matching cards.
     if (selected.length) {
       if (selected.includes(card.id)) { setSelected((s) => s.filter((id) => id !== card.id)); return; }
@@ -256,7 +261,14 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
         </div>
       ) : (
         <div className="hand-wrap">
-          {myTurn && selected.length > 0 ? (
+          {rouletteColor ? (
+            <div className="controls roulette-bar">
+              <span className="roulette-label">🎯 Roulette! Draw until</span>
+              <span className="roulette-swatch" style={{ background: COLOR_HEX[rouletteColor] || '#888' }} />
+              <b style={{ textTransform: 'capitalize' }}>{rouletteColor}</b>
+              <button className="btn primary big" onClick={doDraw}>Draw a card</button>
+            </div>
+          ) : myTurn && selected.length > 0 ? (
             <div className="controls set-bar">
               <span className="set-count">🃏 Set: {selected.length} card{selected.length > 1 ? 's' : ''}</span>
               <button className="btn primary" onClick={confirmSet}>Play {selected.length} card{selected.length > 1 ? 's' : ''}</button>
@@ -369,4 +381,4 @@ function Confetti() {
     </>
   );
 }
-// EOF GameBoard.js (multi-card play)
+// EOF GameBoard.js (roulette manual draw)

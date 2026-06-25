@@ -289,7 +289,7 @@ test('Wild Draw Reverse +4 reverses, adds 4, and cannot be deflected', () => {
 
 // ---- wild color roulette --------------------------------------------------
 
-test('roulette: next player draws until the called color, then loses their turn', () => {
+test('roulette: next player draws (manually) until the called color, then loses their turn', () => {
   const e = makeEngine(['A', 'B', 'C']);
   const roul = C(null, TYPE.WILD_ROULETTE);
   // drawPile pops from the END: blue, then red, then green.
@@ -298,7 +298,13 @@ test('roulette: next player draws until the called color, then loses their turn'
   const before = hand(e, 'B').length;
   const r = e.applyIntent('A', { type: 'PLAY_CARD', cardId: roul.id, rouletteColor: 'green' });
   assert.ok(r.ok);
-  assert.equal(hand(e, 'B').length, before + 3, 'drew blue, red, green');
+  // Roulette is now a manual draw-until-color phase for the victim B.
+  assert.equal(cur(e), 'B', 'victim is up to draw');
+  assert.deepEqual(e.view('B').mustDrawRoulette, { color: 'green' });
+  assert.ok(e.applyIntent('B', { type: 'DRAW' }).ok); // blue — kept
+  assert.ok(e.applyIntent('B', { type: 'DRAW' }).ok); // red — kept
+  assert.ok(e.applyIntent('B', { type: 'DRAW' }).ok); // green — match
+  assert.equal(hand(e, 'B').length, before + 3, 'drew & kept blue, red, green');
   assert.ok(hand(e, 'B').some((c) => c.color === 'green'));
   assert.equal(e.state.activeColor, 'green');
   assert.equal(cur(e), 'C', 'B loses their turn');

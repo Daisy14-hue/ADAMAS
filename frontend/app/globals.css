@@ -1091,6 +1091,11 @@ body { background-attachment: fixed; }
   .discard-top { transform: scale(1.0); }
 }
 
+/* ---- Wild Roulette: manual draw-until-color ---- */
+.roulette-bar { gap: 12px; flex-wrap: wrap; align-items: center; }
+.roulette-label { font-weight: 800; letter-spacing: .03em; color: var(--warn); text-shadow: 0 0 10px rgba(245,185,20,.5); }
+.roulette-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255,255,255,.85); box-shadow: 0 0 12px rgba(255,255,255,.4); }
+
 /* ---- multi-card set selection ---- */
 .set-bar { gap: 12px; flex-wrap: wrap; }
 .set-count { font-weight: 800; letter-spacing: .04em; color: var(--accent-2); text-shadow: 0 0 10px rgba(34,233,255,.5); }

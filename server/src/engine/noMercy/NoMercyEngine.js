@@ -36,6 +36,7 @@ class NoMercyEngine {
       activeColor: null,
       drawStack: null,
       pendingPlay: null,
+      pendingRoulette: null, // { victimIdx, color } — manual draw-until-color
       status: 'lobby',
       winner: null,
       log: [],
@@ -70,6 +71,7 @@ class NoMercyEngine {
     s.current = this._nextIndex(0, 1, 1);
     s.drawStack = null;
     s.pendingPlay = null;
+    s.pendingRoulette = null;
     s.status = 'playing';
     s.winner = null;
     this._emit('MATCH_STARTED', { firstPlayer: s.players[s.current].id });
@@ -83,6 +85,8 @@ class NoMercyEngine {
     if (idx < 0) return this._err('NO_SUCH_PLAYER');
     if (idx !== s.current) return this._err('NOT_YOUR_TURN');
     if (s.players[idx].eliminated) return this._err('PLAYER_ELIMINATED');
+    // During a Wild Roulette the victim may ONLY draw (one card at a time).
+    if (s.pendingRoulette && intent.type !== 'DRAW') return this._err('ROULETTE_IN_PROGRESS');
 
     switch (intent.type) {
       case 'PLAY_CARD':
@@ -292,26 +296,45 @@ class NoMercyEngine {
     this._advance(1);
   }
 
+  // Wild Roulette: the victim now manually presses DRAW (one card at a time,
+  // keeping each) until they reveal the called color. No auto-loop.
   _resolveRoulette(idx, rouletteColor) {
     const s = this.state;
-    const targetIdx = this._nextIndex(idx, s.direction, 1);
-    const target = s.players[targetIdx];
-    let guard = 0;
-    while (guard++ < 1000) {
-      const drawn = this._drawCards(1);
-      if (drawn.length === 0) break;
-      const c = drawn[0];
-      target.hand.push(c);
-      if (c.color === rouletteColor) break;
-    }
+    const victimIdx = this._nextIndex(idx, s.direction, 1);
     s.activeColor = rouletteColor;
-    this._emit('ROULETTE_RESOLVED', { target: target.id, color: rouletteColor });
-    if (this._checkElimination(targetIdx)) {
-      // target eliminated; turn advances past them anyway
+    s.pendingRoulette = { victimIdx, color: rouletteColor };
+    s.current = victimIdx;
+    this._emit('ROULETTE_STARTED', { target: s.players[victimIdx].id, color: rouletteColor });
+  }
+
+  /** A victim's DRAW press while a Wild Roulette is pending. */
+  _handleRouletteDraw(idx) {
+    const s = this.state;
+    const player = s.players[idx];
+    const pr = s.pendingRoulette;
+    const drawn = this._drawCards(1);
+    if (drawn.length === 0) {
+      // Empty pile: resolve safely rather than loop forever.
+      return this._finishRoulette(idx);
     }
-    if (s.status === 'finished') return;
-    s.current = this._nextIndex(targetIdx, s.direction, 1);
+    const card = drawn[0];
+    player.hand.push(card);
+    this._emit('CARD_DRAWN', { player: player.id });
+    if (card.color === pr.color) return this._finishRoulette(idx);
+    // Still pending — the victim presses DRAW again.
+    return { ok: true, events: this._drain() };
+  }
+
+  _finishRoulette(idx) {
+    const s = this.state;
+    const victim = s.players[idx];
+    s.pendingRoulette = null;
+    this._emit('ROULETTE_RESOLVED', { target: victim.id, color: s.activeColor });
+    this._checkElimination(idx);
+    if (s.status === 'finished') return { ok: true, events: this._drain() };
+    s.current = this._nextIndex(idx, s.direction, 1); // victim's turn is skipped
     this._emit('TURN_CHANGED', { player: s.players[s.current].id });
+    return { ok: true, events: this._drain() };
   }
 
   _startDrawStack(idx, card) {
@@ -381,6 +404,9 @@ class NoMercyEngine {
   _handleDraw(idx) {
     const s = this.state;
     const player = s.players[idx];
+
+    // Wild Roulette draw-until-color (victim keeps every card).
+    if (s.pendingRoulette) return this._handleRouletteDraw(idx);
 
     if (s.drawStack) {
       const total = s.drawStack.total;
@@ -600,6 +626,8 @@ class NoMercyEngine {
         : { active: false, total: 0 },
       config: { ...s.config },
       canPass: !!(s.pendingPlay && s.pendingPlay.idx === this._indexOf(playerId)),
+      mustDrawRoulette: (s.pendingRoulette && s.pendingRoulette.victimIdx === this._indexOf(playerId))
+        ? { color: s.pendingRoulette.color } : null,
       players: s.players.map((p) => ({
         id: p.id,
         name: p.name,
