@@ -14,11 +14,7 @@ export default function Card({ card, size = 'normal', faceDown = false, classNam
       </div>
     );
   }
-  const colorClass = card.color && card.color !== null && card.type !== undefined && !isWild(card)
-    ? card.color
-    : isWild(card)
-    ? 'wild'
-    : card.color || 'wild';
+  const colorClass = isWild(card) ? 'wild' : (card.color || 'wild');
   const glyph = cardGlyph(card);
   return (
     <div
@@ -36,6 +32,7 @@ export default function Card({ card, size = 'normal', faceDown = false, classNam
 }
 
 function isWild(card) {
+  // A card is wild by TYPE alone — a residual `color` must not unset wild styling.
   return [
     'wild',
     'wildDraw4',
@@ -45,6 +42,6 @@ function isWild(card) {
     'wildRoulette',
     'wildDrawTwo',
     'wildDrawColor',
-  ].includes(card.type) && !card.color;
+  ].includes(card.type);
 }
 // EOF Card.js

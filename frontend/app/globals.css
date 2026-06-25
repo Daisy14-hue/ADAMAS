@@ -18,10 +18,10 @@
   --accent-soft: rgba(255, 61, 160, .22);
   --cyan-soft: rgba(0, 224, 255, .18);
 
-  --uno-red: #e2433b;
-  --uno-yellow: #f5b914;
-  --uno-green: #36a85a;
-  --uno-blue: #2b7fd6;
+  --uno-red: #d72600;
+  --uno-yellow: #f0b000;
+  --uno-green: #2ea02e;
+  --uno-blue: #0072ce;
 
   --font-display: "Orbitron", "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
 
@@ -197,28 +197,84 @@ a { color: inherit; }
 .uno-card {
   width: 86px; height: 124px; border-radius: 12px; position: relative;
   display:flex; align-items:center; justify-content:center; user-select:none;
-  box-shadow: var(--shadow-soft); border: 3px solid rgba(255,255,255,.92);
+  box-shadow: var(--shadow-soft), inset 0 0 0 2px rgba(255,255,255,.16), inset 0 -10px 18px rgba(0,0,0,.22);
+  border: 3px solid #fff;
   color: #fff; font-weight: 900; overflow: hidden; flex: 0 0 auto;
 }
-.uno-card .oval {
-  position:absolute; width: 64px; height: 96px; border-radius: 50%;
-  transform: rotate(-30deg); background: rgba(255,255,255,.22);
+/* glossy top sheen for a premium printed look (colored cards; wild overrides) */
+.uno-card::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 42%);
 }
-.uno-card .big { position: relative; font-size: 36px; text-shadow: 0 2px 0 rgba(0,0,0,.25); z-index:1; }
-.uno-card .corner { position:absolute; font-size: 13px; z-index:1; }
+/* iconic white diagonal oval; the colored glyph sits inside it */
+.uno-card .oval {
+  position:absolute; width: 58px; height: 104px; border-radius: 50%; z-index: 0;
+  transform: rotate(22deg);
+  background: linear-gradient(180deg, #fff, #f1f1f1);
+  box-shadow: inset 0 3px 6px rgba(0,0,0,.18), 0 1px 0 rgba(255,255,255,.6);
+}
+.uno-card .big {
+  position: relative; font-size: 38px; z-index:1; line-height: 1;
+  text-shadow: 0 1px 0 rgba(0,0,0,.18);
+}
+.uno-card .corner { position:absolute; font-size: 13px; z-index:1; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
 .uno-card .corner.tl { top: 6px; left: 8px; }
 .uno-card .corner.br { bottom: 6px; right: 8px; transform: rotate(180deg); }
-.uno-card.red { background: linear-gradient(160deg, #ef5a51, var(--uno-red)); }
-.uno-card.yellow { background: linear-gradient(160deg, #ffcb34, var(--uno-yellow)); color: #3a2a00; }
-.uno-card.yellow .oval { background: rgba(255,255,255,.35); }
-.uno-card.green { background: linear-gradient(160deg, #46c06d, var(--uno-green)); }
-.uno-card.blue { background: linear-gradient(160deg, #3f95e6, var(--uno-blue)); }
-.uno-card.wild { background: conic-gradient(from 200deg, #e2433b, #f5b914, #36a85a, #2b7fd6, #e2433b); }
-.uno-card.wild .big { color:#fff; }
+/* colored faces (No Mercy) — richer official-ish palette */
+.uno-card.red { background: radial-gradient(120% 100% at 50% 0%, #ff5232, var(--uno-red) 70%); }
+.uno-card.yellow { background: radial-gradient(120% 100% at 50% 0%, #ffd23f, var(--uno-yellow) 72%); }
+.uno-card.green { background: radial-gradient(120% 100% at 50% 0%, #45c23a, var(--uno-green) 72%); }
+.uno-card.blue { background: radial-gradient(120% 100% at 50% 0%, #2a93ec, var(--uno-blue) 72%); }
+/* the center glyph takes the card's colour inside the white oval */
+.uno-card.red .big { color: var(--uno-red); }
+.uno-card.yellow .big { color: #9a6c00; }
+.uno-card.green .big { color: var(--uno-green); }
+.uno-card.blue .big { color: var(--uno-blue); }
+/* Wild cards: near-black base + glowing multicolor symbol + thin rainbow edge. */
+.uno-card.wild {
+  background:
+    radial-gradient(120% 90% at 50% 18%, rgba(255,255,255,.10), transparent 55%),
+    linear-gradient(160deg, #1a1a22, #0a0a0e 70%);
+  border-color: transparent;
+  box-shadow:
+    var(--shadow-soft),
+    0 0 0 2px rgba(0,0,0,.6),
+    0 0 0 3px rgba(255,255,255,.10),
+    0 0 16px rgba(255,45,149,.35);
+  position: relative;
+}
+/* thin rainbow ring around the card */
+.uno-card.wild::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 2px;
+  background: conic-gradient(from 200deg, #e2433b, #f5b914, #36a85a, #2b7fd6, #8b5cf6, #e2433b);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  opacity: .9; pointer-events: none;
+}
+.uno-card.wild .oval {
+  background: conic-gradient(from 200deg, #e2433b, #f5b914, #36a85a, #2b7fd6, #8b5cf6, #e2433b);
+  opacity: .26; filter: blur(2px);
+}
+/* the big glyph (e.g. +4) glows multicolor and stays prominent */
+.uno-card.wild .big {
+  color: #fff;
+  background: linear-gradient(120deg, #ff5a5a, #ffd23f 30%, #4be08a 55%, #4aa3ff 78%, #c77dff);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 6px rgba(255,255,255,.55)) drop-shadow(0 0 12px rgba(124,92,255,.7));
+  font-weight: 900;
+}
+.uno-card.wild .corner {
+  color: #fff;
+  text-shadow: 0 0 6px rgba(124,92,255,.9), 0 0 3px rgba(0,0,0,.8);
+}
 .uno-card.small { width: 58px; height: 84px; border-width: 2px; }
 .uno-card.small .big { font-size: 24px; }
+.uno-card.small .oval { width: 40px; height: 70px; }
+.uno-card.small .corner { font-size: 11px; }
 .uno-card.tiny { width: 40px; height: 58px; border-width: 2px; border-radius: 8px; }
 .uno-card.tiny .big { font-size: 16px; }
+.uno-card.tiny .oval { width: 27px; height: 48px; }
+.uno-card.tiny .corner { font-size: 8px; }
 
 /* hand */
 .hand-wrap { display:flex; flex-direction: column; align-items: center; gap: 10px; }
@@ -328,10 +384,14 @@ a { color: inherit; }
 
 
 /* ---------- UNO Flip: dark-side palette + side switch ---------- */
-.uno-card.pink   { background: linear-gradient(160deg, #f178ba, #e85aa8); }
-.uno-card.teal   { background: linear-gradient(160deg, #36c8c4, #27b3b0); }
-.uno-card.orange { background: linear-gradient(160deg, #f59e52, #e8893a); }
-.uno-card.purple { background: linear-gradient(160deg, #a87cf8, #8b5cf6); }
+.uno-card.pink   { background: radial-gradient(120% 100% at 50% 0%, #ff7ec4, #e0479a 72%); }
+.uno-card.teal   { background: radial-gradient(120% 100% at 50% 0%, #3ad7d2, #179b98 72%); }
+.uno-card.orange { background: radial-gradient(120% 100% at 50% 0%, #ffae5e, #e07a26 72%); }
+.uno-card.purple { background: radial-gradient(120% 100% at 50% 0%, #b18cff, #7c4ff0 72%); }
+.uno-card.pink   .big { color: #d63d92; }
+.uno-card.teal   .big { color: #14807d; }
+.uno-card.orange .big { color: #c96a18; }
+.uno-card.purple .big { color: #6a3ce0; }
 
 /* The board gets a cooler, darker wash on the Dark side. */
 .board.dark-side {
