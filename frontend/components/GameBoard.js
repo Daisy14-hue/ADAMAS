@@ -45,6 +45,8 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const gameLabel = side !== undefined ? 'UNO Flip' : 'UNO No Mercy';
   // Wild Roulette: while set, I'm the victim and may only press DRAW until [color].
   const rouletteColor = view.mustDrawRoulette ? view.mustDrawRoulette.color : null;
+  // Post-draw window: the just-drawn playable card must lead any multi-set.
+  const drawnId = view.drawnCardId || null;
 
   const [picker, setPicker] = useState(null); // { mode:'wild'|'roulette', card }
   const [shuffling, setShuffling] = useState(false);
@@ -119,6 +121,29 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const playCard = (card) => {
     if (!myTurn) return;
     if (rouletteColor) return; // roulette: only DRAW is allowed
+    // Post-draw window: only the drawn card + its same-face siblings can play, and
+    // the set is always anchored on the drawn card (cardIds[0]).
+    if (drawnId) {
+      const drawn = me.hand.find((c) => c.id === drawnId);
+      const dKey = faceKey(drawn);
+      if (selected.length) {
+        if (card.id === drawnId) return; // anchor can't be deselected by tapping it
+        if (selected.includes(card.id)) { setSelected((s) => s.filter((id) => id !== card.id)); return; }
+        if (!isWildType(card) && dKey && faceKey(card) === dKey) setSelected((s) => [...s, card.id]);
+        return;
+      }
+      if (card.id === drawnId) {
+        if (drawn.type === 'wildRoulette') { setPicker({ mode: 'roulette', card: drawn }); return; }
+        if (needsColor(drawn)) { setPicker({ mode: 'wild', card: drawn }); return; }
+        const hasSib = dKey && me.hand.some((c) => c.id !== drawnId && !isWildType(c) && faceKey(c) === dKey);
+        if (hasSib) { setSelected([drawnId]); return; }
+        launchFly(drawn); onIntent({ type: 'PLAY_CARD', cardId: drawnId });
+        return;
+      }
+      // tapped a sibling first → start the set anchored on the drawn card
+      if (!isWildType(card) && dKey && faceKey(card) === dKey) setSelected([drawnId, card.id]);
+      return;
+    }
     // While a set is being built, taps add/remove matching cards.
     if (selected.length) {
       if (selected.includes(card.id)) { setSelected((s) => s.filter((id) => id !== card.id)); return; }

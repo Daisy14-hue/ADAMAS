@@ -210,7 +210,10 @@ class NoMercyEngine {
       return this._handlePlay(idx, { type: 'PLAY_CARD', cardId: ids[0], chosenColor: intent.chosenColor, rouletteColor: intent.rouletteColor });
     }
 
-    if (s.pendingPlay && s.pendingPlay.idx === idx) return this._err('MUST_PLAY_DRAWN_CARD');
+    // Post-draw window: a set is allowed only if it LEADS with the just-drawn card.
+    if (s.pendingPlay && s.pendingPlay.idx === idx && ids[0] !== s.pendingPlay.cardId) {
+      return this._err('MUST_PLAY_DRAWN_CARD');
+    }
 
     if (cards.some((c) => isWild(c))) return this._err('WILD_IN_SET');
     const key = this._multiFaceKey(cards[0]);
@@ -626,6 +629,7 @@ class NoMercyEngine {
         : { active: false, total: 0 },
       config: { ...s.config },
       canPass: !!(s.pendingPlay && s.pendingPlay.idx === this._indexOf(playerId)),
+      drawnCardId: (s.pendingPlay && s.pendingPlay.idx === this._indexOf(playerId)) ? s.pendingPlay.cardId : null,
       mustDrawRoulette: (s.pendingRoulette && s.pendingRoulette.victimIdx === this._indexOf(playerId))
         ? { color: s.pendingRoulette.color } : null,
       players: s.players.map((p) => ({

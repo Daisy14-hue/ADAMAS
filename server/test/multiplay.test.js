@@ -261,6 +261,122 @@ test('Flip: single-element PLAY_CARDS == normal single play', () => {
   assert.equal(cur(e), 'B');
 });
 
+// ===== after-draw multi-play (anchor = drawn card) ==========================
+
+// Force the post-draw pendingPlay state: drawPile pops the drawn card; it must be
+// playable on the top and the player must otherwise have no playable card so DRAW
+// is allowed. We craft hands accordingly.
+test('NM after-draw: drawn number anchors a same-number set', () => {
+  const e = nmEngine(['A', 'B', 'C']);
+  // Pre-draw A has no playable card (green 7/2 vs red 3 top); draws red 7 (playable
+  // by colour), then anchors a 7+7 set.
+  const a7 = num('green', 7);
+  nmSetup(e, {
+    hands: [[a7, num('green', 2)], [spare()], [spare()]],
+    top: num('red', 3), activeColor: 'red',
+    drawPile: [num('red', 7)], // popped = drawn (playable by colour red)
+  });
+  const r1 = e.applyIntent('A', { type: 'DRAW' });
+  assert.ok(r1.ok, r1.error);
+  const drawnId = e.state.pendingPlay.cardId;
+  assert.equal(e.view('A').drawnCardId, drawnId);
+  const r2 = e.applyIntent('A', { type: 'PLAY_CARDS', cardIds: [drawnId, a7.id] });
+  assert.ok(r2.ok, r2.error);
+  assert.equal(e.state.pendingPlay, null, 'pendingPlay cleared');
+  assert.equal(hand(e, 'A').length, 1, 'two 7s left the hand (one filler remains)');
+  assert.equal(e.state.activeColor, 'green', 'last card sets colour');
+  assert.equal(cur(e), 'B');
+});
+
+test('NM after-draw: drawn Skip anchors Skip x2 (stacks)', () => {
+  const e = nmEngine(['A', 'B', 'C', 'D']);
+  // green Skip is unplayable on a red number top; draw a red Skip (playable by
+  // colour), then anchor Skip x2.
+  const aSkip = C('green', NM.SKIP);
+  nmSetup(e, {
+    hands: [[aSkip, num('green', 2)], [spare()], [spare()], [spare()]],
+    top: num('red', 3), activeColor: 'red',
+    drawPile: [C('red', NM.SKIP)],
+  });
+  const r1 = e.applyIntent('A', { type: 'DRAW' });
+  assert.ok(r1.ok, r1.error);
+  const drawnId = e.state.pendingPlay.cardId;
+  const r2 = e.applyIntent('A', { type: 'PLAY_CARDS', cardIds: [drawnId, aSkip.id] });
+  assert.ok(r2.ok, r2.error);
+  assert.equal(cur(e), 'D', 'Skip x2 skips B and C');
+});
+
+test('NM after-draw: set not led by drawn card rejected, state unchanged', () => {
+  const e = nmEngine(['A', 'B', 'C']);
+  const a7 = num('green', 7);
+  nmSetup(e, {
+    hands: [[a7, num('green', 2)], [spare()], [spare()]],
+    top: num('red', 3), activeColor: 'red',
+    drawPile: [num('red', 7)],
+  });
+  e.applyIntent('A', { type: 'DRAW' });
+  const drawnId = e.state.pendingPlay.cardId;
+  const before = nmSnapshot(e);
+  const r = e.applyIntent('A', { type: 'PLAY_CARDS', cardIds: [a7.id, drawnId] }); // anchor wrong
+  assert.equal(r.error, 'MUST_PLAY_DRAWN_CARD');
+  assert.equal(nmSnapshot(e), before, 'state unchanged');
+  // single-play of the drawn card still works
+  const r2 = e.applyIntent('A', { type: 'PLAY_CARD', cardId: drawnId });
+  assert.ok(r2.ok, r2.error);
+});
+
+test('NM after-draw: PASS still works', () => {
+  const e = nmEngine(['A', 'B', 'C']);
+  nmSetup(e, {
+    hands: [[num('green', 2)], [spare()], [spare()]],
+    top: num('red', 3), activeColor: 'red',
+    drawPile: [num('red', 7)],
+  });
+  e.applyIntent('A', { type: 'DRAW' });
+  assert.ok(e.state.pendingPlay);
+  const r = e.applyIntent('A', { type: 'PASS' });
+  assert.ok(r.ok, r.error);
+  assert.equal(cur(e), 'B');
+});
+
+test('Flip after-draw: drawn number anchors a same-number set', () => {
+  const e = flipEngine(['A', 'B', 'C']);
+  const a7 = F(face('green', FT.NUMBER, 7), face('teal', FT.NUMBER, 0));
+  flipSetup(e, {
+    side: 'light',
+    hands: [[a7, F(face('green', FT.NUMBER, 2), face('teal', FT.NUMBER, 0))], [fspare()], [fspare()]],
+    top: F(face('red', FT.NUMBER, 3), face('teal', FT.NUMBER, 1)), activeColor: 'red',
+    drawPile: [F(face('red', FT.NUMBER, 7), face('pink', FT.NUMBER, 0))],
+  });
+  const r1 = e.applyIntent('A', { type: 'DRAW' });
+  assert.ok(r1.ok, r1.error);
+  const drawnId = e.state.pendingPlay.cardId;
+  assert.equal(e.view('A').drawnCardId, drawnId);
+  const r2 = e.applyIntent('A', { type: 'PLAY_CARDS', cardIds: [drawnId, a7.id] });
+  assert.ok(r2.ok, r2.error);
+  assert.equal(e.state.pendingPlay, null);
+  assert.equal(hand(e, 'A').length, 1);
+  assert.equal(e.state.activeColor, 'green');
+  assert.equal(cur(e), 'B');
+});
+
+test('Flip after-draw: wrong anchor rejected; single-play still works', () => {
+  const e = flipEngine(['A', 'B', 'C']);
+  const a7 = F(face('green', FT.NUMBER, 7), face('teal', FT.NUMBER, 0));
+  flipSetup(e, {
+    side: 'light',
+    hands: [[a7, F(face('green', FT.NUMBER, 2), face('teal', FT.NUMBER, 0))], [fspare()], [fspare()]],
+    top: F(face('red', FT.NUMBER, 3), face('teal', FT.NUMBER, 1)), activeColor: 'red',
+    drawPile: [F(face('red', FT.NUMBER, 7), face('pink', FT.NUMBER, 0))],
+  });
+  e.applyIntent('A', { type: 'DRAW' });
+  const drawnId = e.state.pendingPlay.cardId;
+  const before = JSON.stringify(e.state.players.map((p) => p.hand.map((c) => c.id)));
+  assert.equal(e.applyIntent('A', { type: 'PLAY_CARDS', cardIds: [a7.id, drawnId] }).error, 'MUST_PLAY_DRAWN_CARD');
+  assert.equal(JSON.stringify(e.state.players.map((p) => p.hand.map((c) => c.id))), before);
+  assert.ok(e.applyIntent('A', { type: 'PLAY_CARD', cardId: drawnId }).ok, 'single-play of drawn works');
+});
+
 // ===== validateIntent =======================================================
 
 test('validateIntent accepts well-formed PLAY_CARDS and rejects malformed', () => {

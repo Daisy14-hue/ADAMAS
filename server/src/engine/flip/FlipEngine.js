@@ -182,7 +182,10 @@ class FlipEngine {
       return this._handlePlay(idx, { type: 'PLAY_CARD', cardId: ids[0], chosenColor: intent.chosenColor });
     }
 
-    if (s.pendingPlay && s.pendingPlay.idx === idx) return this._err('MUST_PLAY_DRAWN_CARD');
+    // Post-draw window: a set is allowed only if it LEADS with the just-drawn card.
+    if (s.pendingPlay && s.pendingPlay.idx === idx && ids[0] !== s.pendingPlay.cardId) {
+      return this._err('MUST_PLAY_DRAWN_CARD');
+    }
 
     if (cards.some((c) => isWild(this._activeFace(c)))) return this._err('WILD_IN_SET');
     const key = this._multiFaceKey(cards[0]);
@@ -515,6 +518,7 @@ class FlipEngine {
         : { active: false, total: 0 },
       config: { ...s.config },
       canPass: !!(s.pendingPlay && s.pendingPlay.idx === this._indexOf(playerId)),
+      drawnCardId: (s.pendingPlay && s.pendingPlay.idx === this._indexOf(playerId)) ? s.pendingPlay.cardId : null,
       players: s.players.map((p) => ({
         id: p.id,
         name: p.name,
