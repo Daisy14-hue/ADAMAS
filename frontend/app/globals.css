@@ -253,14 +253,14 @@ a { color: inherit; }
 }
 .uno-card.wild .oval {
   background: conic-gradient(from 200deg, #e2433b, #f5b914, #36a85a, #2b7fd6, #8b5cf6, #e2433b);
-  opacity: .26; filter: blur(2px);
+  opacity: .32;
 }
 /* the big glyph (e.g. +4) glows multicolor and stays prominent */
 .uno-card.wild .big {
   color: #fff;
   background: linear-gradient(120deg, #ff5a5a, #ffd23f 30%, #4be08a 55%, #4aa3ff 78%, #c77dff);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 6px rgba(255,255,255,.55)) drop-shadow(0 0 12px rgba(124,92,255,.7));
+  filter: drop-shadow(0 0 7px rgba(124,92,255,.65));
   font-weight: 900;
 }
 .uno-card.wild .corner {
@@ -279,11 +279,12 @@ a { color: inherit; }
 /* hand */
 .hand-wrap { display:flex; flex-direction: column; align-items: center; gap: 10px; }
 .hand { display:flex; justify-content:center; align-items: flex-end; padding: 28px 10px 14px; min-height: 160px; flex-wrap: nowrap; gap: 0; overflow: visible; max-width: 100%; }
-.hand .card-slot { margin-left: calc(-1 * var(--ov, 22px)); transition: transform .15s ease, margin .15s ease; animation: cardEnter .22s ease; will-change: transform; }
+.hand .card-slot { margin-left: calc(-1 * var(--ov, 22px)); transition: transform .15s ease, margin .15s ease; animation: cardEnter .22s ease; }
 .hand .card-slot:first-child { margin-left: 0; }
 .hand .card-slot:hover, .hand .card-slot:focus-within, .hand .card-slot:active { transform: translateY(-22px); z-index: 10; }
 .hand .uno-card { cursor: pointer; transition: transform .15s, box-shadow .2s, filter .2s; }
-.hand .card-slot.playable .uno-card { box-shadow: 0 0 0 3px rgba(47,208,122,.8), 0 10px 22px rgba(0,0,0,.45); animation: playableGlow 1.8s ease-in-out infinite; }
+/* Static playable highlight (no per-card looping shadow animation — big perf win). */
+.hand .card-slot.playable .uno-card { box-shadow: 0 0 0 3px rgba(47,208,122,.85), 0 0 12px rgba(47,208,122,.45), 0 10px 20px rgba(0,0,0,.45); }
 @keyframes cardEnter { from { opacity: 0; transform: translateY(18px) scale(.92); } to { opacity: 1; transform: none; } }
 @keyframes playableGlow {
   0%,100% { box-shadow: 0 0 0 3px rgba(47,208,122,.72), 0 10px 22px rgba(0,0,0,.45); }
@@ -291,7 +292,7 @@ a { color: inherit; }
 }
 /* card-play fly-out toward the discard pile (cosmetic, non-blocking) */
 .fly-layer { position: fixed; inset: 0; pointer-events: none; z-index: 45; display: flex; align-items: flex-end; justify-content: center; }
-.flying-card { margin-bottom: 130px; animation: flyToDiscard .3s cubic-bezier(.4,0,.2,1) forwards; }
+.flying-card { margin-bottom: 130px; animation: flyToDiscard .3s cubic-bezier(.4,0,.2,1) forwards; will-change: transform, opacity; }
 @keyframes flyToDiscard { from { transform: translateY(0) scale(1); opacity: .95; } to { transform: translateY(-30vh) scale(.5) rotate(6deg); opacity: 0; } }
 .hand .card-slot.unplayable .uno-card { filter: brightness(.6) saturate(.7); cursor: not-allowed; }
 @media (max-width: 560px) { .hand { padding-top: 24px; } }
@@ -1040,18 +1041,22 @@ body { background-attachment: fixed; }
 .arena .opponents { gap: 12px; padding: 2px; width: 100%; }
 .arena .opp {
   min-width: 104px; padding: 9px 12px; border-radius: 14px;
-  background: linear-gradient(180deg, rgba(28,18,44,.78), rgba(14,9,22,.7)); backdrop-filter: blur(8px);
+  /* solid translucent fill (no backdrop-blur per pod — blur on N pods is costly) */
+  background: linear-gradient(180deg, rgba(28,18,44,.93), rgba(14,9,22,.9));
   border: 1px solid var(--border);
 }
+/* active pod: static neon ring + a single opacity-pulsing pseudo (compositor-cheap,
+   replaces the per-frame box-shadow loop). */
 .arena .opp.turn {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1.5px rgba(255,61,160,.85), 0 0 26px rgba(255,45,149,.55), 0 0 50px rgba(255,45,149,.3);
-  animation: podPulse 1.8s ease-in-out infinite;
+  box-shadow: 0 0 0 1.5px rgba(255,61,160,.9), 0 0 24px rgba(255,45,149,.5);
+  animation: none;
 }
-@keyframes podPulse {
-  0%,100% { box-shadow: 0 0 0 1.5px rgba(255,61,160,.7), 0 0 20px rgba(255,45,149,.45); }
-  50%     { box-shadow: 0 0 0 1.5px rgba(255,61,160,1), 0 0 34px rgba(255,45,149,.7), 0 0 56px rgba(255,45,149,.35); }
+.arena .opp.turn::after {
+  content: ""; position: absolute; inset: -2px; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 26px rgba(255,45,149,.65); animation: podGlow 1.8s ease-in-out infinite;
 }
+@keyframes podGlow { 0%,100% { opacity: .35; } 50% { opacity: .9; } }
 .arena .opp.turn .count { color: #ff8fc6; text-shadow: 0 0 12px rgba(255,61,160,.7); }
 .arena .opp .mini-cards .mc { background: linear-gradient(135deg, #5a2e7a, #241733); border-color: #6a3aa0; }
 
@@ -1103,11 +1108,8 @@ body { background-attachment: fixed; }
 .hand .card-slot.sel { z-index: 11; }
 .hand .card-slot.sel .uno-card { outline: 3px solid var(--accent-2); outline-offset: 2px; box-shadow: 0 0 0 3px rgba(34,233,255,.5), 0 0 22px rgba(34,233,255,.6), 0 12px 26px rgba(0,0,0,.5); }
 .hand.fan .card-slot.sel { transform: rotate(var(--rot, 0deg)) translateY(calc(var(--ty, 0px) - 28px)); }
-.hand .card-slot.addable .uno-card { animation: addablePulse 1.4s ease-in-out infinite; }
-@keyframes addablePulse {
-  0%,100% { box-shadow: 0 0 0 2px rgba(34,233,255,.35), 0 10px 22px rgba(0,0,0,.45); }
-  50%     { box-shadow: 0 0 0 2px rgba(34,233,255,.7), 0 0 16px rgba(34,233,255,.5), 0 10px 22px rgba(0,0,0,.45); }
-}
+/* Static "addable" highlight (no per-card looping shadow animation). */
+.hand .card-slot.addable .uno-card { box-shadow: 0 0 0 2px rgba(34,233,255,.7), 0 0 14px rgba(34,233,255,.45), 0 10px 22px rgba(0,0,0,.45); }
 .set-order {
   position: absolute; top: -6px; left: -6px; z-index: 12; min-width: 20px; height: 20px;
   border-radius: 50%; background: var(--accent-2); color: #04222b; font-weight: 900; font-size: 12px;
