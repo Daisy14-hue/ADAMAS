@@ -119,14 +119,20 @@ test('skip everyone returns the turn to the player', () => {
   assert.equal(cur(e), 'A');
 });
 
-test('discard all dumps every card of the played color', () => {
+test('discard all lets the player choose which same-colour cards to shed', () => {
   const e = makeEngine(['A', 'B', 'C']);
   const da = C('red', TYPE.DISCARD_ALL);
+  const r3 = num('red', 3); const r8 = num('red', 8); const b2 = num('blue', 2);
   setup(e, {
-    hands: [[da, num('red', 3), num('red', 8), num('blue', 2)]],
+    hands: [[da, r3, r8, b2]],
     top: num('red', 5),
   });
+  // Playing it opens the choice; the turn does NOT advance yet.
   e.applyIntent('A', { type: 'PLAY_CARD', cardId: da.id });
+  assert.ok(e.state.pendingDiscardAll);
+  assert.equal(cur(e), 'A');
+  // Shed both red number cards (keep the blue).
+  e.applyIntent('A', { type: 'DISCARD_ALL_CHOOSE', cardIds: [r3.id, r8.id] });
   const h = hand(e, 'A');
   assert.equal(h.length, 1, 'only the non-red card remains');
   assert.equal(h[0].color, 'blue');

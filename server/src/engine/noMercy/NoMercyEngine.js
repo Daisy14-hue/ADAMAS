@@ -37,6 +37,7 @@ class NoMercyEngine {
       drawStack: null,
       pendingPlay: null,
       pendingRoulette: null, // { victimIdx, color } — manual draw-until-color
+      pendingDiscardAll: null, // { idx, color } — player chooses which to shed
       status: 'lobby',
       winner: null,
       log: [],
@@ -72,6 +73,7 @@ class NoMercyEngine {
     s.drawStack = null;
     s.pendingPlay = null;
     s.pendingRoulette = null;
+    s.pendingDiscardAll = null;
     s.status = 'playing';
     s.winner = null;
     this._emit('MATCH_STARTED', { firstPlayer: s.players[s.current].id });
@@ -87,12 +89,16 @@ class NoMercyEngine {
     if (s.players[idx].eliminated) return this._err('PLAYER_ELIMINATED');
     // During a Wild Roulette the victim may ONLY draw (one card at a time).
     if (s.pendingRoulette && intent.type !== 'DRAW') return this._err('ROULETTE_IN_PROGRESS');
+    // During a Discard All choice the player may ONLY choose what to shed.
+    if (s.pendingDiscardAll && intent.type !== 'DISCARD_ALL_CHOOSE') return this._err('DISCARD_ALL_IN_PROGRESS');
 
     switch (intent.type) {
       case 'PLAY_CARD':
         return this._handlePlay(idx, intent);
       case 'PLAY_CARDS':
         return this._handlePlayCards(idx, intent);
+      case 'DISCARD_ALL_CHOOSE':
+        return this._handleDiscardAllChoose(idx, intent);
       case 'DRAW':
         return this._handleDraw(idx);
       case 'PASS':
@@ -282,21 +288,47 @@ class NoMercyEngine {
     this._advance(1);
   }
 
+  // Discard All is now interactive: the card is already on top of the pile and
+  // activeColor is set; the player then chooses which same-color cards to shed.
   _resolveDiscardAll(idx, card) {
     const s = this.state;
+    s.pendingDiscardAll = { idx, color: card.color };
+    this._emit('DISCARD_ALL_PENDING', { player: s.players[idx].id, color: card.color });
+  }
+
+  /** The player's chosen subset of same-color cards to shed (may be empty). */
+  _handleDiscardAllChoose(idx, intent) {
+    const s = this.state;
+    if (!s.pendingDiscardAll || s.pendingDiscardAll.idx !== idx) return this._err('NO_DISCARD_ALL_PENDING');
     const player = s.players[idx];
-    const color = card.color;
-    const matching = player.hand.filter((c) => c.color === color);
-    player.hand = player.hand.filter((c) => c.color !== color);
-    const top = s.discardPile.pop();
-    s.discardPile.push(...matching, top);
-    this._emit('DISCARD_ALL', { player: player.id, color, count: matching.length });
-    this._maybeRecycleByThreshold();
-    if (player.hand.length === 0) {
-      this._win(idx);
-      return;
+    const pd = s.pendingDiscardAll;
+    const ids = intent.cardIds;
+    if (!Array.isArray(ids)) return this._err('BAD_CHOICE');
+
+    // Validate the WHOLE list before mutating (atomic).
+    const chosen = [];
+    const seen = new Set();
+    for (const id of ids) {
+      if (seen.has(id)) return this._err('CARD_NOT_IN_HAND');
+      seen.add(id);
+      const c = player.hand.find((x) => x.id === id);
+      if (!c) return this._err('CARD_NOT_IN_HAND');
+      if (isWild(c)) return this._err('WILD_IN_DISCARD_ALL');
+      if (c.color !== pd.color) return this._err('WRONG_DISCARD_COLOR');
+      chosen.push(c);
     }
+
+    // Shed harmlessly: remove from hand, slide UNDER the Discard All card.
+    const chosenIds = seen;
+    player.hand = player.hand.filter((c) => !chosenIds.has(c.id));
+    const top = s.discardPile.pop(); // the Discard All card
+    s.discardPile.push(...chosen, top);
+    s.pendingDiscardAll = null;
+    this._emit('DISCARD_ALL_RESOLVED', { player: player.id, color: pd.color, count: chosen.length });
+    this._maybeRecycleByThreshold();
+    if (player.hand.length === 0) return this._win(idx);
     this._advance(1);
+    return { ok: true, events: this._drain() };
   }
 
   // Wild Roulette: the victim now manually presses DRAW (one card at a time,
@@ -632,6 +664,8 @@ class NoMercyEngine {
       drawnCardId: (s.pendingPlay && s.pendingPlay.idx === this._indexOf(playerId)) ? s.pendingPlay.cardId : null,
       mustDrawRoulette: (s.pendingRoulette && s.pendingRoulette.victimIdx === this._indexOf(playerId))
         ? { color: s.pendingRoulette.color } : null,
+      mustChooseDiscardAll: (s.pendingDiscardAll && s.pendingDiscardAll.idx === this._indexOf(playerId))
+        ? { color: s.pendingDiscardAll.color } : null,
       players: s.players.map((p) => ({
         id: p.id,
         name: p.name,

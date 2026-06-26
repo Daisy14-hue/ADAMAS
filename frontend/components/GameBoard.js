@@ -47,6 +47,8 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const rouletteColor = view.mustDrawRoulette ? view.mustDrawRoulette.color : null;
   // Post-draw window: the just-drawn playable card must lead any multi-set.
   const drawnId = view.drawnCardId || null;
+  // Discard All: I choose which same-colour (non-wild) cards to shed.
+  const discardAllColor = view.mustChooseDiscardAll ? view.mustChooseDiscardAll.color : null;
 
   const [picker, setPicker] = useState(null); // { mode:'wild'|'roulette', card }
   const [shuffling, setShuffling] = useState(false);
@@ -121,6 +123,12 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
   const playCard = (card) => {
     if (!myTurn) return;
     if (rouletteColor) return; // roulette: only DRAW is allowed
+    // Discard All choice: tap same-colour non-wild cards to toggle them.
+    if (discardAllColor) {
+      if (isWildType(card) || card.color !== discardAllColor) return;
+      setSelected((s) => (s.includes(card.id) ? s.filter((id) => id !== card.id) : [...s, card.id]));
+      return;
+    }
     // Post-draw window: only the drawn card + its same-face siblings can play, and
     // the set is always anchored on the drawn card (cardIds[0]).
     if (drawnId) {
@@ -175,6 +183,11 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
     else onIntent({ type: 'PLAY_CARDS', cardIds: ids });
   };
   const cancelSet = () => setSelected([]);
+  const confirmDiscardAll = () => {
+    const ids = selected;
+    setSelected([]);
+    onIntent({ type: 'DISCARD_ALL_CHOOSE', cardIds: ids });
+  };
 
   const chooseColor = (color) => {
     const { mode, card } = picker;
@@ -286,7 +299,17 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
         </div>
       ) : (
         <div className="hand-wrap">
-          {rouletteColor ? (
+          {discardAllColor ? (
+            <div className="controls roulette-bar">
+              <span className="roulette-label">♻️ Discard All — shed</span>
+              <span className="roulette-swatch" style={{ background: COLOR_HEX[discardAllColor] || '#888' }} />
+              <b style={{ textTransform: 'capitalize' }}>{discardAllColor}</b>
+              <button className="btn primary big" onClick={confirmDiscardAll}>
+                {selected.length ? `Discard ${selected.length}` : 'Shed none'}
+              </button>
+              <span className="muted set-hint">tap your {discardAllColor} cards to shed (any subset)</span>
+            </div>
+          ) : rouletteColor ? (
             <div className="controls roulette-bar">
               <span className="roulette-label">🎯 Roulette! Draw until</span>
               <span className="roulette-swatch" style={{ background: COLOR_HEX[rouletteColor] || '#888' }} />
@@ -324,8 +347,10 @@ export default function GameBoard({ view, playerId, onIntent, onLeave }) {
             {me.hand && me.hand.map((card, i) => {
               const playable = myTurn && isPlayable(card, view);
               const inSet = selected.includes(card.id);
-              const addable = selected.length > 0 && !inSet && !isWildType(card) && faceKey(card) === setFaceKey;
-              const order = inSet ? selected.indexOf(card.id) + 1 : null;
+              const addable = discardAllColor
+                ? (!inSet && !isWildType(card) && card.color === discardAllColor)
+                : (selected.length > 0 && !inSet && !isWildType(card) && faceKey(card) === setFaceKey);
+              const order = (inSet && !discardAllColor) ? selected.indexOf(card.id) + 1 : null;
               return (
                 <div key={card.id} className={`card-slot ${playable ? 'playable' : 'unplayable'} ${inSet ? 'sel' : ''} ${addable ? 'addable' : ''}`} style={fanProps(i)}>
                   {inSet && <span className="set-order">{order}</span>}
@@ -406,4 +431,4 @@ function Confetti() {
     </>
   );
 }
-// EOF GameBoard.js (roulette manual draw)
+// EOF GameBoard.js (discard-all choice)

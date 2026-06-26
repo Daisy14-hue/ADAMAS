@@ -26,7 +26,7 @@ function clampInt(v, min, max, fallback) {
 
 // ---- defensive guard rails (NOT game rules) ------------------------------
 const VALID_COLORS = new Set(['red', 'yellow', 'green', 'blue', 'pink', 'teal', 'orange', 'purple']);
-const KNOWN_INTENTS = new Set(['PLAY_CARD', 'PLAY_CARDS', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD', 'BUILD_HOUSE', 'SELL_HOUSE',
+const KNOWN_INTENTS = new Set(['PLAY_CARD', 'PLAY_CARDS', 'DISCARD_ALL_CHOOSE', 'DRAW', 'PASS', 'SAY_UNO', 'SPIN', 'SPIN_CHOICE', 'RACE_TAP', 'RACE_TIMEOUT', 'ROLL', 'END_TURN', 'BUY_PROPERTY', 'DECLINE_PROPERTY', 'JAIL_PAY', 'JAIL_USE_CARD', 'BUILD_HOUSE', 'SELL_HOUSE',
   'MORTGAGE', 'UNMORTGAGE', 'PROPOSE_TRADE', 'ACCEPT_TRADE', 'DECLINE_TRADE', 'CANCEL_TRADE',
   'AUCTION_BID', 'AUCTION_PASS', 'SETTLE_DEBT', 'DECLARE_BANKRUPTCY',
   'CALL_END_GAME', 'AGREE_END', 'DECLINE_END']);
@@ -56,6 +56,10 @@ function validateIntent(intent) {
       if (!Array.isArray(intent.cardIds) || intent.cardIds.length < 1 || intent.cardIds.length > 14) return false;
       if (!intent.cardIds.every(isShortStr)) return false;
       if (intent.chosenColor !== undefined && !isColorStr(intent.chosenColor)) return false;
+      return true;
+    case 'DISCARD_ALL_CHOOSE': // No Mercy: shed any subset of same-color cards (may be empty)
+      if (!Array.isArray(intent.cardIds) || intent.cardIds.length > 30) return false;
+      if (!intent.cardIds.every(isShortStr)) return false;
       return true;
     case 'SPIN_CHOICE':
       if (intent.cardId !== undefined && !isShortStr(intent.cardId)) return false;
